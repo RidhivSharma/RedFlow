@@ -88,7 +88,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 
 | # | Phase | Status |
 |---|-------|--------|
-| 1 | Scaffold + tray | ☐ not started |
+| 1 | Scaffold + tray | ◐ in progress |
 | 2 | Global hotkey | ☐ not started |
 | 3 | Recording (mic → WAV) | ☐ not started |
 | 4 | Whisper transcription | ☐ not started |
@@ -100,13 +100,15 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 10 | Release | ☐ not started |
 
 ### Phase 1 — Scaffold + tray
-- [ ] electron-vite scaffold with strict TypeScript; React renderer compiles; ESLint clean.
-- [ ] Folder layout matches the tree above; `src/shared/ipc.ts` exists (types only for now).
-- [ ] App starts with **no visible window** and lives in the system tray with a menu (Settings → placeholder, Quit).
-- [ ] Single-instance lock: launching a second copy does nothing harmful.
-- [ ] Quit (from tray) ends every process cleanly — no zombie `electron.exe`.
-- [ ] Bare settings store: `settings.json` is created in `userData` on first run with defaults.
+- [x] electron-vite scaffold with strict TypeScript; React renderer compiles; ESLint clean.
+- [x] Folder layout matches the tree above; `src/shared/ipc.ts` exists (types only for now).
+- [x] App starts with **no visible window** and lives in the system tray with a menu (Settings → placeholder, Quit).
+- [x] Single-instance lock: launching a second copy does nothing harmful.
+- [x] Quit (from tray) ends every process cleanly — no zombie `electron.exe`.
+- [x] Bare settings store: `settings.json` is created in `userData` on first run with defaults.
 - **Done when:** `npm run dev` shows the tray icon on Windows 10/11, the app survives all day in the tray, and Quit fully exits.
+
+> Phase 1 status: implementation and dev/production smoke tests pass, and the tray **Settings** and **Quit** actions were verified manually on Windows (Quit removed the tray icon and exited cleanly). Only the all-day tray soak remains before marking the phase done.
 
 ### Phase 2 — Global hotkey
 - [ ] uiohook-napi starts after app ready and stops cleanly on quit.

@@ -99,7 +99,7 @@ States it renders: hidden (idle) → **recording** (soft pulse, starts within ~1
 
 ### 3.3 Settings window
 
-The only *normal* window, and the only one allowed to take focus. Standard frame, React page, singleton (reuse instead of creating twice). Opened from the tray; closing destroys it (recreated on demand). Because it can hold focus, the hotkey handler applies a state guard while it's focused (whether to fully ignore the hotkey then is an open decision in phase 7) — otherwise dictated text would be pasted into Murmur itself.
+The only *normal* window, and the only one allowed to take focus. Standard frame, React page, singleton (reuse instead of creating twice). Opened from the tray; closing destroys it (recreated on demand). A placeholder version of this window ships in phase 1; the actual controls arrive in phase 7. Because it can hold focus, the hotkey handler applies a state guard while it's focused (whether to fully ignore the hotkey then is an open decision in phase 7) — otherwise dictated text would be pasted into Murmur itself.
 
 ---
 
@@ -118,6 +118,7 @@ Principles:
 | `dictation:audio` | recorder → main | `{ sessionId, wav: ArrayBuffer, durationMs }` | deliver the complete utterance |
 | `dictation:capture-error` | recorder → main | `{ sessionId, code, message }` | mic/stream failure |
 | `overlay:state` | main → overlay | `{ state, detail? }` | render the current status |
+| `app:info` | settings → main (invoke) | — | app name, version, Electron version, platform; used by the phase-1 placeholder footer |
 | `settings:get` | settings → main (invoke) | — | current settings snapshot |
 | `settings:set` | settings → main (invoke) | partial settings (validated) | save changed fields |
 | `settings:changed` | main → settings/overlay | full snapshot | push updates (e.g. hotkey changed) |

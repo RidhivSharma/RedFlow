@@ -1,0 +1,161 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: #0b1220;
+  color: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at 15% 0%, rgb(20 184 166 / 16%), transparent 42%),
+    radial-gradient(circle at 100% 100%, rgb(45 212 191 / 8%), transparent 40%), #0b1220;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 48px 32px 28px;
+}
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  background: linear-gradient(160deg, #14b8a6, #0f766e);
+  box-shadow: 0 12px 30px rgb(20 184 166 / 25%);
+}
+
+.mark span {
+  width: 4px;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.mark span:nth-child(1) {
+  height: 12px;
+  opacity: 0.7;
+}
+
+.mark span:nth-child(2) {
+  height: 22px;
+  opacity: 0.9;
+}
+
+.mark span:nth-child(3) {
+  height: 30px;
+}
+
+.mark span:nth-child(4) {
+  height: 22px;
+  opacity: 0.9;
+}
+
+.mark span:nth-child(5) {
+  height: 12px;
+  opacity: 0.7;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #5eead4;
+}
+
+h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panel {
+  margin-top: 32px;
+  padding: 28px;
+  border: 1px solid rgb(148 163 184 / 18%);
+  border-radius: 18px;
+  background: rgb(15 23 42 / 72%);
+  backdrop-filter: blur(12px);
+}
+
+.panel p {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 14px;
+  line-height: 1.65;
+  color: #94a3b8;
+}
+
+.planned {
+  display: grid;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planned li {
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.planned li::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #2dd4bf;
+  transform: translateY(-50%);
+}
+
+.status {
+  margin-top: auto;
+  padding-top: 32px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.status-error {
+  color: #fca5a5;
+}

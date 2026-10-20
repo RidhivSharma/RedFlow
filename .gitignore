@@ -1,0 +1,11 @@
+node_modules
+out
+dist
+build
+.DS_Store
+.eslintcache
+*.log*
+
+# Whisper binaries and models are downloaded, never committed (phase 4).
+resources/whisper/
+resources/models/
