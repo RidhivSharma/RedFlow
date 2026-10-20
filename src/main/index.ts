@@ -1,8 +1,10 @@
 import { app, dialog } from 'electron'
 import { acquireSingleInstanceLock } from './app/singleInstance'
-import { createTray, destroyTray } from './app/tray'
+import { createTray, destroyTray, setTrayTooltip } from './app/tray'
+import { createDictationController } from './dictation'
+import { startHotkeyListener, stopHotkeyListener } from './hotkey'
 import { registerIpcHandlers } from './ipc'
-import { ensureSettingsFile, getSettingsFilePath } from './settings'
+import { ensureSettingsFile, getSettingsFilePath, loadStartupPreferences } from './settings'
 import { openSettingsWindow } from './windows/settingsWindow'
 
 // Windows: setting an explicit AppUserModelID makes Windows attribute the tray
@@ -38,6 +40,20 @@ async function startApp(): Promise<void> {
     return
   }
 
+  const preferences = await loadStartupPreferences()
+  const dictation = createDictationController({ minUtteranceMs: preferences.minUtteranceMs })
+
+  startHotkeyListener({
+    key: preferences.hotkey.key,
+    modifiers: preferences.hotkey.modifiers,
+    onStart: dictation.start,
+    onStop: dictation.stop,
+    onError: (message, error) => {
+      console.error(`[murmur] ${message}`, error)
+      setTrayTooltip('Hotkey unavailable')
+    }
+  })
+
   console.log('[murmur] ready - running in the system tray')
 }
 
@@ -61,6 +77,7 @@ function bootstrap(): void {
   })
 
   app.on('before-quit', () => {
+    stopHotkeyListener()
     destroyTray()
   })
 

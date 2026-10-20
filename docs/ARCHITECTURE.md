@@ -54,7 +54,7 @@ One Node process. Responsibilities and where they live:
 | Boot & lifecycle | `src/main/index.ts` | Thin: create singletons, wire modules, handle quit. Windows-specific: set `app.setAppUserModelId('dev.murmur.app')` so Windows associates tray/notifications with Murmur rather than a generic "electron". |
 | Single instance | `src/main/app/singleInstance.ts` | `app.requestSingleInstanceLock()`; second launch is a no-op. A tray app must not run twice — two hotkey listeners and clipboard writers would fight. |
 | Tray | `src/main/app/tray.ts` | Icon + menu: Settings, Start with Windows (toggle), Quit. Tray apps have no taskbar button, so the tray is the only visible surface between utterances. |
-| Hotkey | `src/main/hotkey.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. |
+| Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. |
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
 | Transcriber | `src/main/transcriber.ts` | Writes the WAV to `%TEMP%`, spawns `whisper-cli.exe`, parses stdout, kills on timeout, cleans up in `finally`. Strictly one process at a time; new utterances queue FIFO so insertion order matches speaking order. |
 | Paster | `src/main/paster.ts` | Clipboard save/set/restore + Ctrl+V simulation. Sequencing rules in section 7. |
@@ -141,6 +141,8 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 
 Guards: FIFO — one utterance transcribes/pastes at a time; recording the next utterance proceeds immediately in parallel (capture is in the renderer; whisper runs in main/child process), outputs stay in speech order.
 
+Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle` and discards the utterance without an error.
+
 ---
 
 ## 6. Data flow — one utterance, end to end
@@ -189,8 +191,8 @@ Written atomically (temp file + rename), debounced, with a `schemaVersion` for f
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `schemaVersion` | `number` | `1` | migration marker |
-| `hotkey` | `string` | *(decided phase 2)* | primary push-to-talk key |
-| `hotkeyModifiers` | `string[]` | `[]` | optional combos, if we allow them (open decision) |
+| `hotkey` | `string` | `F9` | primary push-to-talk key (case-insensitive `UiohookKey` name) |
+| `hotkeyModifiers` | `string[]` | `[]` | modifiers that must be held with the key (`Ctrl`, `Alt`, `Shift`, `Win`) |
 | `minUtteranceMs` | `number` | `300` | ignore taps shorter than this |
 | `maxUtteranceMs` | `number` | `120000` | auto-stop cap |
 | `modelPath` | `string` | `null` | override the bundled base.en model |
@@ -199,6 +201,15 @@ Written atomically (temp file + rename), debounced, with a `schemaVersion` for f
 | `overlay` | `object` | `{ position: 'bottom-center' }` | overlay placement / visibility |
 | `sounds` | `boolean` | `false` | start/stop sound cues (open decision) |
 | `pasteRestoreDelayMs` | `number` | `350` | delay before clipboard restore |
+
+Push-to-talk bindings are two fields so a bare key and a combo use the same shape:
+
+```json
+{ "hotkey": "F9", "hotkeyModifiers": [] }
+{ "hotkey": "Space", "hotkeyModifiers": ["Ctrl"] }
+```
+
+The primary key down starts dictation only when every listed modifier is held. Dictation ends on release of the primary key *or* of any required modifier, so a combo cannot stick. Holding the key produces Windows auto-repeat keydowns; the listener latches the first one and ignores the rest until keyup. An unknown key or modifier is a configuration error: it is logged, the tray tooltip reports the hotkey as unavailable, and the rest of the app keeps running.
 
 ---
 
@@ -243,9 +254,9 @@ The exact installed path (per-user install is the default) is confirmed when the
 
 Tracks with AGENTS.md §Open decisions; summary with the architectural angle:
 
-1. **Default hotkey + modifier combos** (phase 2) — a single rarely-used key is simplest; combos reduce collision risk but complicate keyup semantics.
+1. **Default hotkey + modifier combos** (phase 2) — default is hold **F9** (decided). The config already supports modifiers (`Ctrl+Space`), but whether the settings UI exposes combo rebinding is still open; a single rarely-used key is simplest.
 2. **Warm vs. cold mic** (phase 3) — latency vs. the OS mic indicator; measured numbers wanted before deciding.
-3. **Minimum utterance length / tap behavior** (phases 2/5) — discard-vs-insert threshold, plus good error feedback for sub-taps.
+3. **Minimum utterance length / tap behavior** (phases 2/5) — **decided: 300 ms.** Shorter holds are discarded as taps after a brief recording pulse; no error is shown. Actual insertion will honour the decision in phase 5.
 4. **Sound cues & confirmation flash** (phases 6/7) — audible feedback keys off user tolerance.
 5. **Hotkey while the settings window is focused** (phase 7) — ignore (safe) vs. allow (pasting into Murmur's own fields).
 6. **Adaptive clipboard-restore delay** (phase 8) — fixed 350 ms is simple; adaptive adds complexity and possible edge cases.

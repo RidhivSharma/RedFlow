@@ -24,7 +24,7 @@ export function createTray(actions: TrayActions): void {
   }
 
   const nextTray = new Tray(icon)
-  nextTray.setToolTip('Murmur — push-to-talk dictation')
+  nextTray.setToolTip('Idle')
   nextTray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Settings', click: actions.onOpenSettings },
@@ -39,6 +39,10 @@ export function createTray(actions: TrayActions): void {
 
   tray = nextTray
   console.log('[murmur] tray icon created')
+}
+
+export function setTrayTooltip(text: string): void {
+  tray?.setToolTip(text)
 }
 
 export function destroyTray(): void {

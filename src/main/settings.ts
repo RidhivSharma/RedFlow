@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
+import { DEFAULT_HOTKEY_BINDING } from '../shared/hotkey'
 
 export type OverlayPosition = 'bottom-center'
 
@@ -20,14 +21,14 @@ export interface MurmurSettings {
 }
 
 /**
- * Defaults mirror docs/ARCHITECTURE.md §8. The hotkey stays empty until phase 2
- * picks the real default; phase 7 replaces this bare store with validated reads
- * and atomic, debounced writes.
+ * Defaults mirror docs/ARCHITECTURE.md §8. The hotkey defaults to holding F9;
+ * phase 7 replaces this bare store with validated reads and atomic, debounced
+ * writes.
  */
 export const DEFAULT_SETTINGS: MurmurSettings = {
   schemaVersion: 1,
-  hotkey: '',
-  hotkeyModifiers: [],
+  hotkey: DEFAULT_HOTKEY_BINDING.key,
+  hotkeyModifiers: [...DEFAULT_HOTKEY_BINDING.modifiers],
   minUtteranceMs: 300,
   maxUtteranceMs: 120000,
   modelPath: null,
@@ -55,4 +56,73 @@ export async function ensureSettingsFile(): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(filePath, `${JSON.stringify(DEFAULT_SETTINGS, null, 2)}\n`, 'utf8')
   console.log(`[murmur] created default settings at ${filePath}`)
+}
+
+export interface HotkeyPreferences {
+  readonly key: string
+  /** Raw modifier names; validated by the hotkey listener at startup. */
+  readonly modifiers: readonly string[]
+}
+
+export interface StartupPreferences {
+  readonly hotkey: HotkeyPreferences
+  readonly minUtteranceMs: number
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Reads the startup fields phase 2 needs before the full validated settings
+ * store exists (phase 7): the hotkey binding and the minimum hold duration.
+ * A missing, unreadable, or corrupt file falls back to the defaults so the app
+ * still starts and the hotkey still works.
+ */
+export async function loadStartupPreferences(): Promise<StartupPreferences> {
+  const fallback: StartupPreferences = {
+    hotkey: {
+      key: DEFAULT_HOTKEY_BINDING.key,
+      modifiers: DEFAULT_HOTKEY_BINDING.modifiers
+    },
+    minUtteranceMs: DEFAULT_SETTINGS.minUtteranceMs
+  }
+
+  try {
+    // Windows: Notepad and PowerShell commonly save UTF-8 JSON with a byte
+    // order mark, and JSON.parse rejects that leading character.
+    const raw = (await readFile(getSettingsFilePath(), 'utf8')).replace(/^\uFEFF/, '')
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) {
+      return fallback
+    }
+
+    const rawKey = parsed['hotkey']
+    const rawModifiers = parsed['hotkeyModifiers']
+    const rawMinUtteranceMs = parsed['minUtteranceMs']
+    const key =
+      typeof rawKey === 'string' && rawKey.trim() !== '' ? rawKey.trim() : fallback.hotkey.key
+    const minUtteranceMs =
+      typeof rawMinUtteranceMs === 'number' &&
+      Number.isFinite(rawMinUtteranceMs) &&
+      rawMinUtteranceMs >= 0
+        ? rawMinUtteranceMs
+        : fallback.minUtteranceMs
+
+    return {
+      hotkey: {
+        key,
+        // A phase-1 file has an empty hotkey key, so use F9 above. Non-string
+        // entries are ignored here; unknown names make the listener report a
+        // clear configuration error instead of binding the wrong key.
+        modifiers: Array.isArray(rawModifiers)
+          ? rawModifiers.filter((modifier): modifier is string => typeof modifier === 'string')
+          : fallback.hotkey.modifiers
+      },
+      minUtteranceMs
+    }
+  } catch (error) {
+    console.error('[murmur] could not read settings; using default hotkey and tap settings', error)
+    return fallback
+  }
 }

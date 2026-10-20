@@ -22,7 +22,9 @@
     "icon": "node scripts/generate-icon.mjs",
     "postinstall": "install-electron"
   },
-  "dependencies": {},
+  "dependencies": {
+    "uiohook-napi": "^1.5.5"
+  },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.1",
     "@electron-toolkit/eslint-config-ts": "^4.0.0",

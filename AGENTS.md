@@ -89,7 +89,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Scaffold + tray | ◐ in progress |
-| 2 | Global hotkey | ☐ not started |
+| 2 | Global hotkey | ✓ done |
 | 3 | Recording (mic → WAV) | ☐ not started |
 | 4 | Whisper transcription | ☐ not started |
 | 5 | Text insertion | ☐ not started |
@@ -111,12 +111,14 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 1 status: implementation and dev/production smoke tests pass, and the tray **Settings** and **Quit** actions were verified manually on Windows (Quit removed the tray icon and exited cleanly). Only the all-day tray soak remains before marking the phase done.
 
 ### Phase 2 — Global hotkey
-- [ ] uiohook-napi starts after app ready and stops cleanly on quit.
-- [ ] Hotkey key-down / key-up detected system-wide; wired into the dictation state machine.
-- [ ] Key auto-repeat while holding does **not** re-trigger start (must be filtered).
-- [ ] Hook start failure (rare) logs clearly and leaves the app running without hotkey.
-- [ ] Chosen key read from `settings.json`; editing the file + restart applies it.
+- [x] uiohook-napi starts after app ready and stops cleanly on quit.
+- [x] Hotkey key-down / key-up detected system-wide; wired into the dictation state machine.
+- [x] Key auto-repeat while holding does **not** re-trigger start (must be filtered).
+- [x] Hook start failure (rare) logs clearly and leaves the app running without hotkey.
+- [x] Chosen key read from `settings.json`; editing the file + restart applies it.
 - **Done when:** press/release of the hotkey is logged correctly from any focused app, non-hold taps are ignored, and nothing sticks in "recording" state.
+
+> Phase 2 status: **done and verified on Windows.** Live F9 press/release logged exactly once with a separate app focused; auto-repeat produced no duplicate starts. The 300 ms tap policy discarded a 94 ms tap and accepted a 660 ms hold. A `Ctrl+F23` binding was loaded from `settings.json` and released correctly when Ctrl was released first. Tray Quit during a held F9 exited with no Murmur processes left. A forced native `uIOhook.start()` failure logged clearly and the app stayed running. Binding resolution lives in `hotkeyBinding.ts`; `dictation.ts` now owns the idle/recording guard and tap decision.
 
 ### Phase 3 — Recording (mic → WAV)
 - [ ] Hidden recorder window created once at startup: `show: false`, `backgroundThrottling: false`, audio autoplay unlocked.
@@ -184,9 +186,9 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 
 Owned decisions are listed above. These still need the owner's answer when their phase arrives (details in `docs/ARCHITECTURE.md → Open decisions`):
 
-1. Default hotkey key, and whether rebinding allows modifier combos (phase 2).
+1. Default hotkey key, and whether rebinding allows modifier combos (phase 2). **Default decided: hold F9.** Binding config already supports modifier combos (`Ctrl+Space`); whether the settings UI exposes them is still open.
 2. Mic warm (stream always open, Win11 shows a mic indicator) vs. cold (open per utterance) (phase 3).
-3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5).
+3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5). **Decided: 300 ms.** F9 still shows the recording state immediately; a hold shorter than 300 ms is discarded as a tap (no insertion, no error). `dictation.ts` owns the guard; insertion will honour it in phase 5.
 4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7).
 5. Hotkey ignored while Murmur's own settings window is focused? (phase 7).
 6. Adaptive vs. fixed clipboard-restore delay (phase 8).
