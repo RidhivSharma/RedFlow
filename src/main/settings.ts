@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
+import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import { DEFAULT_HOTKEY_BINDING } from '../shared/hotkey'
 
 export type OverlayPosition = 'bottom-center'
@@ -67,6 +68,7 @@ export interface HotkeyPreferences {
 export interface StartupPreferences {
   readonly hotkey: HotkeyPreferences
   readonly minUtteranceMs: number
+  readonly maxUtteranceMs: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,10 +76,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Reads the startup fields phase 2 needs before the full validated settings
- * store exists (phase 7): the hotkey binding and the minimum hold duration.
- * A missing, unreadable, or corrupt file falls back to the defaults so the app
- * still starts and the hotkey still works.
+ * Reads the startup fields the recorder and hotkey need before the full
+ * validated settings store exists (phase 7): the hotkey binding, the minimum
+ * hold duration, and the maximum utterance length. A missing, unreadable, or
+ * corrupt file falls back to the defaults so the app still starts.
  */
 export async function loadStartupPreferences(): Promise<StartupPreferences> {
   const fallback: StartupPreferences = {
@@ -85,7 +87,8 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
       key: DEFAULT_HOTKEY_BINDING.key,
       modifiers: DEFAULT_HOTKEY_BINDING.modifiers
     },
-    minUtteranceMs: DEFAULT_SETTINGS.minUtteranceMs
+    minUtteranceMs: DEFAULT_SETTINGS.minUtteranceMs,
+    maxUtteranceMs: DEFAULT_SETTINGS.maxUtteranceMs
   }
 
   try {
@@ -100,6 +103,7 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
     const rawKey = parsed['hotkey']
     const rawModifiers = parsed['hotkeyModifiers']
     const rawMinUtteranceMs = parsed['minUtteranceMs']
+    const rawMaxUtteranceMs = parsed['maxUtteranceMs']
     const key =
       typeof rawKey === 'string' && rawKey.trim() !== '' ? rawKey.trim() : fallback.hotkey.key
     const minUtteranceMs =
@@ -108,6 +112,10 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
       rawMinUtteranceMs >= 0
         ? rawMinUtteranceMs
         : fallback.minUtteranceMs
+    const maxUtteranceMs =
+      typeof rawMaxUtteranceMs === 'number' && Number.isFinite(rawMaxUtteranceMs)
+        ? Math.min(Math.max(rawMaxUtteranceMs, minUtteranceMs, 1), RECORDER_MAX_UTTERANCE_MS)
+        : fallback.maxUtteranceMs
 
     return {
       hotkey: {
@@ -119,10 +127,11 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
           ? rawModifiers.filter((modifier): modifier is string => typeof modifier === 'string')
           : fallback.hotkey.modifiers
       },
-      minUtteranceMs
+      minUtteranceMs,
+      maxUtteranceMs
     }
   } catch (error) {
-    console.error('[murmur] could not read settings; using default hotkey and tap settings', error)
+    console.error('[murmur] could not read settings; using defaults', error)
     return fallback
   }
 }

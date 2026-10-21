@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' ws://localhost:* ws://127.0.0.1:*"
+    />
+    <!-- The localhost WebSocket sources are only used by Vite's dev HMR server. -->
+    <title>Murmur Recorder</title>
+  </head>
+  <body>
+    <script type="module" src="/recorder/main.ts"></script>
+  </body>
+</html>

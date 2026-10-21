@@ -56,10 +56,12 @@ One Node process. Responsibilities and where they live:
 | Tray | `src/main/app/tray.ts` | Icon + menu: Settings, Start with Windows (toggle), Quit. Tray apps have no taskbar button, so the tray is the only visible surface between utterances. |
 | Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. |
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
-| Transcriber | `src/main/transcriber.ts` | Writes the WAV to `%TEMP%`, spawns `whisper-cli.exe`, parses stdout, kills on timeout, cleans up in `finally`. Strictly one process at a time; new utterances queue FIFO so insertion order matches speaking order. |
+| Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. |
+| Transcriber | `src/main/transcriber.ts` | Phase 4: snapshots the latest WAV to a unique file, spawns `whisper-cli.exe`, parses stdout, kills on timeout, cleans up in `finally`. Strictly one process at a time; new utterances queue FIFO so insertion order matches speaking order. |
 | Paster | `src/main/paster.ts` | Clipboard save/set/restore + Ctrl+V simulation. Sequencing rules in section 7. |
 | Settings | `src/main/settings.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). Schema in section 8. |
 | Windows | `src/main/windows/*.ts` | Factories for the three windows (section 3). |
+| Permissions | `src/main/app/permissions.ts` | Session handlers allow `media` only for the hidden recorder window, audio only. Every other window and permission is denied. |
 | Misc OS glue | — | `powerMonitor` (cancel recording on sleep/lock), `app.setLoginItemSettings` for start-with-Windows, `app.getPath('temp')` for WAV scratch space. |
 
 **Windows-specific:** low-level keyboard hooks + clipboard writes + spawning an unsigned local exe is a pattern heuristic antivirus sometimes dislikes. Murmur does nothing secretly — if AV flags it, the fix is honest: document it, and consider code signing at release time.
@@ -74,18 +76,21 @@ Three renderer windows. Only one is ever visible.
 
 A borderless BrowserWindow created once at startup and kept for the app's lifetime, with:
 
-- `show: false` — never visible; it exists so `getUserMedia` has a page to live in.
+- `show: false` — never visible; it exists so `getUserMedia` has a page to live in. `focusable: false` and `skipTaskbar: true` keep it out of the user's way.
 - `backgroundThrottling: false` — Windows would otherwise throttle timers/audio in a hidden page, garbling capture.
 - `autoplayPolicy: 'no-user-gesture-required'` — `AudioContext` starts suspended without a user gesture; a hidden window has none, so this flag is required or the first utterance is silent.
-- `contextIsolation: true`, `nodeIntegration: false`, minimal preload with exactly four operations: `begin`, `finish`, `sendAudio`, and `reportError`.
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, minimal preload with exactly six operations: `onBegin`, `onFinish`, `onCancel`, `sendAudio`, `reportCaptureError`, and `reportStatus`.
 
 Capture pipeline (all inside this renderer):
 
-1. `navigator.mediaDevices.getUserMedia({ audio: ... })` once at startup. **Keeping the stream open (warm mic)** means key-down → recording instantly. The cost: Windows shows a "mic in use" indicator whenever Murmur runs. This trade-off is an owned open decision (AGENTS.md, decision pending) — revisit if it bothers users.
-2. An `AudioWorklet` pulls successive chunks of native-rate audio (usually 48 kHz), mixes to mono, downsamples to 16 kHz with plain decimation, converts `float32 → int16`, and appends to a growing buffer capped at the max hold length (audio is discarded beyond the cap).
-3. On `finish`, the buffer is wrapped with a 44-byte RIFF/WAV header (16 kHz, 1 channel, 16-bit PCM = 32 KB/s) and the whole `ArrayBuffer` is posted to main via IPC (structured clone handles binary fine — no base64).
+1. `navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false } })` once at startup. **The mic stays warm** (decided, AGENTS.md): the stream and audio graph live for the whole app, so key-down only flips a gate instead of opening a device. This is what keeps the first word from being cut. The cost: Windows shows a "mic in use" indicator whenever Murmur runs.
+2. The `AudioContext` is created with `sampleRate: 16000` (Chromium resamples the device input), and the `AudioWorkletNode` is forced to one channel, so the worklet receives 16 kHz mono samples. The worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them and reports the worklet's frame count. If the requested rate is not honoured, setup fails loudly instead of producing a mislabelled WAV.
+3. The worklet enforces a frame cap derived from `maxDurationMs` (hard ceiling 120 s). At the cap it flushes, posts an `ended` message, and stops appending; the main process also auto-finishes at the same duration and ignores the later key-up.
+4. On `finish` (or the cap), the worklet flushes its partial chunk, the renderer wraps the accumulated samples in a 44-byte RIFF/WAV header (16 kHz, 1 channel, 16-bit PCM = 32 KB/s), and posts the whole `ArrayBuffer` to main (structured clone handles binary — no base64).
 
-Failure modes surface as `dictation:capture-error` (no device, device busy, Windows microphone privacy setting off — the last is a per-OS toggle many users hit, and the message should point to it).
+The main process validates the exact header and duration before writing `%TEMP%\murmur\last.wav`, and an 8 s finish watchdog turns a hung renderer into a visible error instead of a stuck recording state.
+
+Failure modes surface as `dictation:capture-error` (no device, device busy, Windows microphone privacy setting off — the last is a per-OS toggle many users hit, so the message points at `Settings → Privacy & security → Microphone`). Startup failures arrive as `recorder:status` and are logged plus shown in the tray tooltip.
 
 ### 3.2 Overlay window (status & feedback)
 
@@ -108,15 +113,18 @@ The only *normal* window, and the only one allowed to take focus. Standard frame
 Principles:
 
 - Channels and payload types are declared once in `src/shared/ipc.ts` and imported by main, preload, and renderers. The channel-name strings exist nowhere else.
-- Each preload exposes a small, named API object for its window (`window.murmur = { begin(), finish(), sendAudio(buf), onState(cb) }`), never a raw `ipcRenderer` that could send arbitrary channels.
-- Main validates every incoming payload at runtime (string length, whitelisted enum values, numeric ranges) — a renderer bug or compromise must not be able to corrupt settings or run whisper with attacker-controlled paths.
+- Each preload exposes a small, named API object for its window, never a raw `ipcRenderer` that could send arbitrary channels. The settings window gets `window.murmur`; the hidden recorder gets `window.murmurRecorder` (begin/finish/cancel listeners, sendAudio, reportCaptureError, reportStatus).
+- Main validates every incoming payload at runtime (string length, whitelisted enum values, numeric ranges) — a renderer bug or compromise must not be able to corrupt settings or run whisper with attacker-controlled paths. Recorder messages are additionally checked against the recorder window's `webContents` identity.
+- Electron's sandboxed preloads cannot `require` relative chunks, so each preload is built as a standalone bundle (`build.isolatedEntries` in `electron.vite.config.ts`).
 
 | Channel | Direction | Payload | Purpose |
 |---|---|---|---|
-| `dictation:begin` | main → recorder | `{ sessionId }` | hotkey pressed: switch mic pipeline to "capturing" |
-| `dictation:finish` | main → recorder | `{ sessionId }` | hotkey released: stop capturing, encode WAV |
-| `dictation:audio` | recorder → main | `{ sessionId, wav: ArrayBuffer, durationMs }` | deliver the complete utterance |
-| `dictation:capture-error` | recorder → main | `{ sessionId, code, message }` | mic/stream failure |
+| `dictation:begin` | main → recorder | `{ sessionId, maxDurationMs }` | hotkey pressed: open the capture gate; `maxDurationMs` is clamped to 120 s |
+| `dictation:finish` | main → recorder | `{ sessionId }` | hotkey released: flush, encode WAV, send it back |
+| `dictation:cancel` | main → recorder | `{ sessionId }` | tap shorter than the minimum: discard silently, no WAV |
+| `dictation:audio` | recorder → main | `{ sessionId, wav: ArrayBuffer, durationMs }` | complete 16 kHz mono 16-bit WAV |
+| `dictation:capture-error` | recorder → main | `{ sessionId \| null, code, message }` | mic/stream failure; `null` session means startup |
+| `recorder:status` | recorder → main | `{ microphone: 'ready' \| 'unavailable', message? }` | microphone warm-up result / device lost |
 | `overlay:state` | main → overlay | `{ state, detail? }` | render the current status |
 | `app:info` | settings → main (invoke) | — | app name, version, Electron version, platform; used by the phase-1 placeholder footer |
 | `settings:get` | settings → main (invoke) | — | current settings snapshot |
@@ -133,15 +141,18 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 
 | State | Entered by | Leaves to |
 |---|---|---|
-| `idle` | app start; after insert or error | `recording` (hotkey down) |
-| `recording` | keydown + renderer started capturing OK | `transcribing` (keyup) · `idle` (capture error, or tap shorter than minimum length → discard) · auto-finish at max hold cap |
-| `transcribing` | WAV arrived from recorder | `pasting` (non-empty text) · `idle` (empty/failed → error shown) |
-| `pasting` | valid text ready | `idle` (pasted & clipboard restored, or error shown) |
+| `idle` | app start; after save or error | `recording` (hotkey down) |
+| `recording` | keydown + recorder accepted `begin` | `finalizing` (keyup past the tap minimum, or max-hold cap) · `idle` (capture error, or tap shorter than minimum length → discard) |
+| `finalizing` | keyup/cap accepted; WAV in flight | `idle` (WAV validated and saved) · `idle` + error (capture or write failure) |
+| `transcribing` | phase 4: WAV queued for whisper | `pasting` (non-empty text) · `idle` (empty/failed → error shown) |
+| `pasting` | phase 5: valid text ready | `idle` (pasted & clipboard restored, or error shown) |
 | `error` | any failure (message shown in overlay) | `idle` (next keypress) |
 
-Guards: FIFO — one utterance transcribes/pastes at a time; recording the next utterance proceeds immediately in parallel (capture is in the renderer; whisper runs in main/child process), outputs stay in speech order.
+Phase 3 stops at `finalizing → idle`; phase 4 inserts `transcribing`/`pasting` after the WAV is saved. A new keypress during `finalizing` is currently ignored — the disk write is milliseconds — and the phase-8 FIFO work will allow the next recording to proceed in parallel while earlier utterances transcribe.
 
-Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle` and discards the utterance without an error.
+Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle`, sends `dictation:cancel`, and produces no WAV or error.
+
+Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s cap) the state moves to `finalizing` without waiting for key-up; the later key-up is ignored. The worklet also stops appending at its own frame cap, so a hung timer cannot grow the buffer.
 
 ---
 
@@ -149,14 +160,14 @@ Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recordi
 
 1. Murmur sits in the tray; uiohook listener armed; the recorder already has a warm mic stream; the overlay is hidden. The target app (say, a browser) has keyboard focus — Murmur never took it.
 2. The user holds the hotkey anywhere in Windows. uiohook fires keydown **in the main process**; auto-repeat re-fires are filtered (same key, still no keyup).
-3. Main bumps `sessionId` and sends `dictation:begin` to the recorder; the overlay switches to "recording" within ~100 ms.
-4. The recorder's worklet pulls chunks, downmixes to mono, downsample 48 kHz→16 kHz, converts to Int16, and appends to the utterance buffer.
-5. The user releases the key → uiohook keyup → main sends `dictation:finish`.
-6. The recorder finalizes the buffer: 44-byte RIFF header + PCM data. Sends `dictation:audio` (ArrayBuffer) to main. Overlay shows "transcribing…".
-7. Main writes `%TEMP%\murmur-<sessionId>.wav` and spawns: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
-8. Main reads stdout: plain-text lines (timestamps suppressed via `-nt`), joined with single spaces and trimmed. Timeout ≈ 10 s + 4× clip duration; `whisper-cli.exe` is killed and temp deleted if it overruns. Non-zero exit → error path.
+3. Main creates a `sessionId` and sends `dictation:begin` (`{ sessionId, maxDurationMs }`) to the recorder. The warm worklet opens its capture gate on the next audio quantum — no device open, so the first word survives. The overlay switches to "recording" within ~100 ms.
+4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer.
+5. The user releases the key → uiohook keyup → main sends `dictation:finish` (or the max-hold timer sends it first).
+6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
+7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. Phase 4 snapshots that file to a per-session path (so a following utterance cannot overwrite it) and spawns: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
+8. Main reads stdout: plain-text lines (timestamps suppressed via `-nt`), joined with single spaces and trimmed. Timeout ≈ 10 s + 4× clip duration; `whisper-cli.exe` is killed and its snapshot deleted if it overruns. Non-zero exit → error path.
 9. Non-empty text → state `pasting` (section 7). Empty text → "nothing heard" state; the window is returned to `idle` quietly.
-10. After paste + clipboard restore, the temp WAV is deleted (`finally` — deletion happens even on failure).
+10. After paste + clipboard restore, the per-session WAV snapshot is deleted (`finally` — deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
 11. If the user spoke again meanwhile, the queue processes the next `sessionId`.
 12. Overlay flashes a brief confirmation (optional, open decision) and hides; state `idle`.
 
@@ -222,7 +233,7 @@ The primary key down starts dictation only when every listed modifier is held. D
 | Model bin | `<repo>/resources/models/` | `<install>\resources\models\` (`extraResources`) |
 | uiohook native `.node` | `node_modules` (resolved normally) | `app.asar.unpacked` via `asarUnpack` — native modules can't load from inside an asar |
 | Settings JSON | `%APPDATA%\Murmur\settings.json` | same |
-| Temp WAVs | `%TEMP%\murmur-*.wav`, deleted after use | same |
+| Temp WAVs | `%TEMP%\murmur\last.wav` (latest utterance, kept for inspection) | same |
 
 A single path helper (`getBundledResource('models/ggml-base.en.bin')` style) tests `app.isPackaged` so dev and installed behavior stay aligned; nothing hardcodes a drive or repo path.
 
@@ -236,18 +247,20 @@ The exact installed path (per-user install is the default) is confirmed when the
 2. **Key auto-repeat** — holding a key re-sends keydown at ~30 Hz. The hotkey layer treats "keydown already active" as a no-op.
 3. **Focus discipline** — synthesized Ctrl+V goes to whatever is focused; every Murmur window must neither grab focus (`focusable:false` for the overlay, `showInactive` for updates) nor block the target.
 4. **Mic privacy toggle** — Windows Settings can deny desktop apps microphone access; `getUserMedia` then fails. Detectable and must produce a pointer to `Settings → Privacy & security → Microphone`.
-5. **Warm mic indicator** — Windows shows a mic-in-use badge while our stream is open. Known trade-off (open decision).
+5. **Warm mic indicator** — Windows shows a mic-in-use badge while our stream is open. **Decided: keep the mic warm** (first-word latency beats hiding the badge; see section 12).
 6. **DPI** — the overlay must position correctly on multi-monitor, mixed-scale setups.
-7. **Hidden window throttling** — backgroundThrottling off or audio capture stalls.
-8. **Tray-only lifecycle** — `window-all-closed` must **not** quit; only the tray Quit does. Also relevant:  `before-quit` must stop hooks, mic, and whisper cleanly.
-9. **AV/SmartScreen** — hooks + clipboard + unsigned installer is a heuristic trifecta; expected, handled in phases 9/10.
-10. **Per-user install default** — no admin rights needed; avoids most corporate and permission pitfalls.
+7. **Hidden window throttling** — `backgroundThrottling: false` or audio capture stalls; `autoplayPolicy: 'no-user-gesture-required'` or the hidden `AudioContext` stays suspended.
+8. **AudioContext rate** — a 16 kHz context is supported on Windows, but if Chromium ever ignores the request the worklet would record at the wrong rate. `createPipeline` checks `context.sampleRate` and fails with a clear error instead of writing a mislabelled WAV.
+9. **Tray-only lifecycle** — `window-all-closed` must **not** quit; only the tray Quit does. Also relevant: `before-quit` must stop hooks, mic, and whisper cleanly.
+10. **AV/SmartScreen** — hooks + clipboard + unsigned installer is a heuristic trifecta; expected, handled in phases 9/10.
+11. **Per-user install default** — no admin rights needed; avoids most corporate and permission pitfalls.
 
 ## 11. Security posture
 
-- Renderers sandboxed: no `nodeIntegration`, context isolation on, no remote origins, a minimal CSP for the static overlay/settings pages.
+- Renderers sandboxed: no `nodeIntegration`, context isolation on, no remote origins, a minimal CSP for the static overlay/settings pages. The recorder page additionally allows `blob:` scripts because its `AudioWorklet` source is installed from a Blob URL; that code is bundled into the app, never fetched.
+- Media permission is granted only to the recorder window, audio only; all other permission requests are denied. IPC payloads are validated again in main, and recorder messages must come from that window's `webContents`.
 - The preload layer is the attack boundary: named functions only; main validates every payload.
-- File touches confined to: temp WAVs (deleted in `finally`), settings JSON, log files; nothing else on disk.
+- File touches confined to: temp WAVs (`last.wav` plus phase-4 snapshots deleted in `finally`), settings JSON, log files; nothing else on disk.
 - No network at runtime — the whisper model and `whisper-cli.exe` are pinned, checksum-verified downloads at build time. Dependencies are audited for phone-home behavior before adoption.
 
 ## 12. Open decisions
@@ -255,7 +268,7 @@ The exact installed path (per-user install is the default) is confirmed when the
 Tracks with AGENTS.md §Open decisions; summary with the architectural angle:
 
 1. **Default hotkey + modifier combos** (phase 2) — default is hold **F9** (decided). The config already supports modifiers (`Ctrl+Space`), but whether the settings UI exposes combo rebinding is still open; a single rarely-used key is simplest.
-2. **Warm vs. cold mic** (phase 3) — latency vs. the OS mic indicator; measured numbers wanted before deciding.
+2. **Warm vs. cold mic** (phase 3) — **decided: warm.** The stream and AudioWorklet stay open for the app lifetime, so key-down only opens a gate and the first word is preserved. The OS mic-in-use indicator is the accepted trade-off; key-down → first captured sample is now a few milliseconds rather than a device-open round trip.
 3. **Minimum utterance length / tap behavior** (phases 2/5) — **decided: 300 ms.** Shorter holds are discarded as taps after a brief recording pulse; no error is shown. Actual insertion will honour the decision in phase 5.
 4. **Sound cues & confirmation flash** (phases 6/7) — audible feedback keys off user tolerance.
 5. **Hotkey while the settings window is focused** (phase 7) — ignore (safe) vs. allow (pasting into Murmur's own fields).

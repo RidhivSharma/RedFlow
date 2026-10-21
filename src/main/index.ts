@@ -1,7 +1,8 @@
 import { app, dialog } from 'electron'
+import { configureSessionPermissions } from './app/permissions'
 import { acquireSingleInstanceLock } from './app/singleInstance'
 import { createTray, destroyTray, setTrayTooltip } from './app/tray'
-import { createDictationController } from './dictation'
+import { createDictationController, type DictationController } from './dictation'
 import { startHotkeyListener, stopHotkeyListener } from './hotkey'
 import { registerIpcHandlers } from './ipc'
 import { ensureSettingsFile, getSettingsFilePath, loadStartupPreferences } from './settings'
@@ -13,6 +14,8 @@ const APP_USER_MODEL_ID = 'dev.murmur.app'
 
 app.setName('Murmur')
 app.setAppUserModelId(APP_USER_MODEL_ID)
+
+let activeDictation: DictationController | null = null
 
 function reportStartupError(message: string, error: unknown): void {
   console.error(`[murmur] ${message}`, error)
@@ -40,8 +43,21 @@ async function startApp(): Promise<void> {
     return
   }
 
+  // Chromium must allow the hidden recorder to use the microphone. The handler
+  // checks the requesting window, so the settings window still cannot.
+  configureSessionPermissions()
+
   const preferences = await loadStartupPreferences()
-  const dictation = createDictationController({ minUtteranceMs: preferences.minUtteranceMs })
+  const dictation = createDictationController({
+    minUtteranceMs: preferences.minUtteranceMs,
+    maxUtteranceMs: preferences.maxUtteranceMs
+  })
+  activeDictation = dictation
+
+  // Create the hidden window and warm the microphone before the hotkey goes
+  // live. Capture failures are reported through the tray, and the app keeps
+  // running so a later attempt can retry.
+  await dictation.initialize()
 
   startHotkeyListener({
     key: preferences.hotkey.key,
@@ -78,6 +94,8 @@ function bootstrap(): void {
 
   app.on('before-quit', () => {
     stopHotkeyListener()
+    activeDictation?.dispose()
+    activeDictation = null
     destroyTray()
   })
 

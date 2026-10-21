@@ -55,6 +55,7 @@ RedFlow/
 │  │  ├─ app/                   ← app lifecycle, single-instance, tray
 │  │  ├─ hotkey.ts              ← uiohook-napi glue (watch keys, tap Ctrl+V)
 │  │  ├─ dictation.ts           ← utterance state machine
+│  │  ├─ recorder.ts            ← capture session + temp WAV writer
 │  │  ├─ transcriber.ts         ← whisper-cli runner + FIFO queue
 │  │  ├─ paster.ts              ← clipboard save/set/restore + Ctrl+V
 │  │  ├─ settings.ts            ← JSON store in userData
@@ -90,7 +91,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 |---|-------|--------|
 | 1 | Scaffold + tray | ◐ in progress |
 | 2 | Global hotkey | ✓ done |
-| 3 | Recording (mic → WAV) | ☐ not started |
+| 3 | Recording (mic → WAV) | ✓ done |
 | 4 | Whisper transcription | ☐ not started |
 | 5 | Text insertion | ☐ not started |
 | 6 | Overlay UI | ☐ not started |
@@ -121,12 +122,16 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 2 status: **done and verified on Windows.** Live F9 press/release logged exactly once with a separate app focused; auto-repeat produced no duplicate starts. The 300 ms tap policy discarded a 94 ms tap and accepted a 660 ms hold. A `Ctrl+F23` binding was loaded from `settings.json` and released correctly when Ctrl was released first. Tray Quit during a held F9 exited with no Murmur processes left. A forced native `uIOhook.start()` failure logged clearly and the app stayed running. Binding resolution lives in `hotkeyBinding.ts`; `dictation.ts` now owns the idle/recording guard and tap decision.
 
 ### Phase 3 — Recording (mic → WAV)
-- [ ] Hidden recorder window created once at startup: `show: false`, `backgroundThrottling: false`, audio autoplay unlocked.
-- [ ] `getUserMedia` works; mic failure paths (no device, Windows privacy setting off) produce a clear message.
-- [ ] Capture converts to **mono, 16 kHz, Int16**, accumulates frames while the key is held.
-- [ ] On release: full WAV (44-byte RIFF header + 16-bit PCM) is IPC'd to main and written to `%TEMP%`.
-- [ ] Decision logged: mic stream stays warm between utterances (see open decisions).
+- [x] Hidden recorder window created once at startup: `show: false`, `focusable: false`, `backgroundThrottling: false`, `autoplayPolicy: 'no-user-gesture-required'`.
+- [x] `getUserMedia` works with mono capture and echo cancellation off. Permission-denied and device error paths produce a message pointing at Windows privacy settings; the no-device/device-busy mappings use Chromium's standard DOMException names.
+- [x] Capture converts to **mono, 16 kHz, Int16** with an `AudioContext({ sampleRate: 16000 })` and an `AudioWorklet`, and accumulates 100 ms chunks while the key is held.
+- [x] On release: the full WAV (44-byte RIFF header + 16-bit PCM) is IPC'd to main and written to `%TEMP%\murmur\last.wav`.
+- [x] Hard cap: the capture auto-finishes at `maxUtteranceMs` (120 s default) and the later key-up is ignored. The `AudioWorklet` also stops appending at its frame cap.
+- [x] Session permission handler allows `media` for the hidden recorder window only, audio-only; every other permission and window is denied.
+- [x] Decision logged: mic stream stays **warm** between utterances (see open decisions).
 - **Done when:** a held utterance produces a valid 16 kHz mono 16-bit `.wav` in temp that plays back correctly in a media player.
+
+> Phase 3 status: **done and verified on Windows.** Dev and production builds both warmed the microphone at 16000 Hz. A 1.6 s hold produced `%TEMP%\murmur\last.wav` (51,244 bytes = 44-byte header + 51,200 bytes PCM) with non-zero audio, and Windows `SoundPlayer` loaded it. A 159 ms tap was discarded without touching the file. With `maxUtteranceMs` temporarily set to 3000 ms, a 5 s hold auto-finished at 3 s with a 3,000 ms WAV and ignored the later key-up. Denying the `media` permission produced the Windows privacy guidance instead of a silent failure. Preload bundles are now standalone (`isolatedEntries`), which also fixes the production-only preload chunk failure.
 
 ### Phase 4 — Whisper transcription
 - [ ] `whisper-cli.exe` + `ggml-base.en.bin` fetched into `resources/` (download doc added; not committed).
@@ -187,7 +192,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 Owned decisions are listed above. These still need the owner's answer when their phase arrives (details in `docs/ARCHITECTURE.md → Open decisions`):
 
 1. Default hotkey key, and whether rebinding allows modifier combos (phase 2). **Default decided: hold F9.** Binding config already supports modifier combos (`Ctrl+Space`); whether the settings UI exposes them is still open.
-2. Mic warm (stream always open, Win11 shows a mic indicator) vs. cold (open per utterance) (phase 3).
+2. Mic warm (stream always open, Win11 shows a mic indicator) vs. cold (open per utterance) (phase 3). **Decided: warm.** The stream and worklet stay open for the app lifetime so key-down flips a flag instead of opening a device; that is what keeps the first word from being cut. Trade-off: Windows shows the mic-in-use indicator while Murmur runs.
 3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5). **Decided: 300 ms.** F9 still shows the recording state immediately; a hold shorter than 300 ms is discarded as a tap (no insertion, no error). `dictation.ts` owns the guard; insertion will honour it in phase 5.
 4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7).
 5. Hotkey ignored while Murmur's own settings window is focused? (phase 7).
