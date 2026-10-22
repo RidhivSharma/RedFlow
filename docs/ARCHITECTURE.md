@@ -53,13 +53,13 @@ One Node process. Responsibilities and where they live:
 |---|---|---|
 | Boot & lifecycle | `src/main/index.ts` | Thin: create singletons, wire modules, handle quit. Windows-specific: set `app.setAppUserModelId('dev.murmur.app')` so Windows associates tray/notifications with Murmur rather than a generic "electron". |
 | Single instance | `src/main/app/singleInstance.ts` | `app.requestSingleInstanceLock()`; second launch is a no-op. A tray app must not run twice — two hotkey listeners and clipboard writers would fight. |
-| Tray | `src/main/app/tray.ts` | Icon + menu: Settings, Start with Windows (toggle), Quit. Tray apps have no taskbar button, so the tray is the only visible surface between utterances. |
-| Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. |
+| Tray | `src/main/app/tray.ts` | Icon + menu: Settings, Quit. Tray apps have no taskbar button, so the tray is the only visible surface between utterances. |
+| Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts`, `src/main/hotkeyController.ts`, `src/main/hotkeyCapture.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. `hotkeyController.ts` owns start/stop so settings can rebind live, and `hotkeyCapture.ts` temporarily owns the hook while the settings window picks a new key. |
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
-| Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. |
-| Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts` | `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l en -nt -np -t`, parses and cleans stdout, kills after 60 s, and cleans up in `finally`. |
+| Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. Also brokers microphone listing, device switching, and the settings test meter. |
+| Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts` | `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l <en\|auto> -nt -np -t`, parses and cleans stdout, kills after 60 s, and cleans up in `finally`. |
 | Inserter | `src/main/inserter.ts` | Serialized clipboard save/set/restore + Ctrl+V simulation via uiohook. Waits for hotkey modifiers to be released and refuses to paste into Murmur's own windows. Sequencing rules in section 7. |
-| Settings | `src/main/settings.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). Schema in section 8. |
+| Settings | `src/main/settings.ts`, `src/main/settingsController.ts`, `src/main/models.ts`, `src/main/app/autostart.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). `settingsController.ts` serves the settings window and applies changes live (hotkey, microphone, autostart); `models.ts` lists `.bin` files; `autostart.ts` mirrors `autostart` into Windows login items. Schema in section 8. |
 | Windows | `src/main/windows/*.ts` | Factories for the three windows (section 3). |
 | Permissions | `src/main/app/permissions.ts` | Session handlers allow `media` only for the hidden recorder window, audio only. Every other window and permission is denied. |
 | Misc OS glue | — | `powerMonitor` (cancel recording on sleep/lock), `app.setLoginItemSettings` for start-with-Windows, `app.getPath('temp')` for WAV scratch space. |
@@ -117,7 +117,19 @@ The recorder computes a 0–1 level from an `AnalyserNode` RMS window on a dBFS 
 
 ### 3.3 Settings window
 
-The only *normal* window, and the only one allowed to take focus. Standard frame, React page, singleton (reuse instead of creating twice). Opened from the tray; closing destroys it (recreated on demand). A placeholder version of this window ships in phase 1; the actual controls arrive in phase 7. Because it can hold focus, the hotkey handler applies a state guard while it's focused (whether to fully ignore the hotkey then is an open decision in phase 7) — otherwise dictated text would be pasted into Murmur itself.
+The only *normal* window, and the only one allowed to take focus. Standard frame, React page, singleton (reuse instead of creating twice). Opened from the tray; closing destroys it (recreated on demand). Because it can hold focus, the inserter refuses to paste into any focused Murmur window (`own-window-focused`, section 7). The hotkey stays live while Settings is open so a recording is never silently lost, but its transcript is not pasted back into Murmur.
+
+Controls, all applied live (no restart):
+
+- **Push-to-talk hotkey** — click Change, then press a key or modifier combo. Capture runs in main through a temporary uiohook listener while the normal listener is suspended; Escape, a 15 s timeout, or closing the window cancels and restores the previous binding. A 300 ms arming delay ignores the click/Enter that started capture.
+- **Trailing space** — appends one space after each transcript when the text does not already end in whitespace.
+- **Microphone** — dropdown fed by the hidden recorder's `enumerateDevices` (labels are available because the recorder already holds the media permission). Choosing a device restarts the warm capture pipeline; a change made mid-utterance is deferred until the utterance ends. `System default` (`null`) follows Windows.
+- **Test microphone** — enables a live 0–1 level meter in the settings window. The level comes from the recorder renderer's existing analyser, forwarded through main; the settings window never asks for microphone permission.
+- **Whisper model** — dropdown listing `.bin` files in `resources/models`; `null` means the bundled `ggml-base.en.bin`. A custom absolute `modelPath` edited in JSON is shown even if it is not in the folder.
+- **Language** — English (`en`) or auto-detect (`auto`), passed to `whisper-cli.exe` per run.
+- **Start with Windows** — mirrors `autostart` into the Windows login items immediately (`app.setLoginItemSettings`).
+
+The footer shows validation errors, background save failures, and a short "Saved" notice. Settings are validated in main; the renderer receives a `{ ok, settings } | { ok, message }` result rather than an Electron error string (section 4).
 
 ---
 
@@ -126,7 +138,7 @@ The only *normal* window, and the only one allowed to take focus. Standard frame
 Principles:
 
 - Channels and payload types are declared once in `src/shared/ipc.ts` and imported by main, preload, and renderers. The channel-name strings exist nowhere else.
-- Each preload exposes a small, named API object for its window, never a raw `ipcRenderer` that could send arbitrary channels. The settings window gets `window.murmur`; the hidden recorder gets `window.murmurRecorder` (begin/finish/cancel listeners, sendAudio, reportCaptureError, reportStatus).
+- Each preload exposes a small, named API object for its window, never a raw `ipcRenderer` that could send arbitrary channels. The settings window gets `window.murmur` (settings read/update, model + microphone lists, mic test, hotkey capture, subscriptions). The hidden recorder gets `window.murmurRecorder` (begin/finish/cancel/set-device/test-monitor listeners, config request, sendAudio, sendLevel, sendMonitorLevel, reportDevices, reportCaptureError, reportStatus).
 - Main validates every incoming payload at runtime (string length, whitelisted enum values, numeric ranges) — a renderer bug or compromise must not be able to corrupt settings or run whisper with attacker-controlled paths. Recorder messages are additionally checked against the recorder window's `webContents` identity.
 - Electron's sandboxed preloads cannot `require` relative chunks, so each preload is built as a standalone bundle (`build.isolatedEntries` in `electron.vite.config.ts`).
 
@@ -139,12 +151,24 @@ Principles:
 | `dictation:level` | recorder → main | `{ sessionId, level }` | ~15 fps normalized mic level while the capture gate is open |
 | `dictation:capture-error` | recorder → main | `{ sessionId \| null, code, message }` | mic/stream failure; `null` session means startup |
 | `recorder:status` | recorder → main | `{ microphone: 'ready' \| 'unavailable', message? }` | microphone warm-up result / device lost |
+| `recorder:devices` | recorder → main | `{ devices }` | microphones visible to the recorder (labels require the media permission it already holds) |
+| `recorder:set-device` | main → recorder | `{ deviceId \| null }` | switch the warm pipeline; deferred while recording |
+| `recorder:list-devices` | main → recorder | — | request a fresh microphone list |
+| `recorder:get-config` | recorder → main (invoke) | — | current `microphoneId` before warm-up |
+| `recorder:test-monitor` | main → recorder | `{ enabled }` | start/stop the settings window's test meter |
+| `recorder:monitor-level` | recorder → main | `{ level }` | one test-meter sample from the recorder analyser |
 | `overlay:state` | main → overlay | `{ state, detail? }` | render `listening`, `transcribing`, `done`, `error`, or `idle` |
 | `overlay:level` | main → overlay | `{ level }` | one 0–1 meter sample, forwarded only for the active session |
-| `app:info` | settings → main (invoke) | — | app name, version, Electron version, platform; used by the phase-1 placeholder footer |
-| `settings:get` | settings → main (invoke) | — | current settings snapshot |
-| `settings:set` | settings → main (invoke) | partial settings (validated) | save changed fields |
-| `settings:changed` | main → settings/overlay | full snapshot | push updates (e.g. hotkey changed) |
+| `app:info` | settings → main (invoke) | — | app name/version + Electron version for the settings footer |
+| `settings:get-state` | settings → main (invoke) | — | `{ settings, models, defaultModelFile, microphones }` |
+| `settings:update` | settings → main (invoke) | partial settings (validated) | save changed fields live; resolves `{ ok: true, settings }` or `{ ok: false, message }` |
+| `settings:changed` | main → settings | full snapshot | push after a change (for example one made by another surface) |
+| `settings:devices` | main → settings | `{ devices }` | microphone list changed (hotplug, permission, device switch) |
+| `settings:error` | main → settings | `{ message }` | a debounced background save failed |
+| `settings:start-mic-test` / `settings:stop-mic-test` | settings → main (invoke) | — | toggle the test meter; main drives the recorder |
+| `settings:mic-level` | main → settings | `{ level }` | one 0–1 sample while the test is active |
+| `settings:capture-hotkey` | settings → main (invoke) | — | suspend the hotkey listener and resolve with the captured binding, or `null` after Esc/timeout |
+| `settings:cancel-hotkey-capture` | settings → main (invoke) | — | cancel an in-flight capture |
 
 Everything else — spawning whisper, clipboard operations, writing temp files — is main-process-only and never crosses IPC. The recorder knows nothing about whisper; main is the only component that knows the whole pipeline.
 
@@ -179,7 +203,7 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer. A parallel `AnalyserNode` computes the display level without touching the recorded samples.
 5. The user releases the key → uiohook keyup → main sends `dictation:finish` (or the max-hold timer sends it first).
 6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
-7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
+7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l <en|auto> -nt -np -t <threads>`.
 8. Main reads stdout: diagnostic lines and timestamps are stripped, remaining plain-text lines are joined with single spaces, and the result is trimmed. Each run gets a 60 s timeout; `whisper-cli.exe` is killed on overrun. Non-zero exit → error path with whisper's stderr detail.
 9. Non-empty text is returned to the dictation controller, which queues it for the inserter (section 7). Empty text → "No speech was recognized" in the tray/log until the overlay exists.
 10. If the hotkey is a combo, insertion first waits until every required modifier is physically released. Then the inserter borrows the clipboard, sends a synthetic Ctrl+V, waits `pasteRestoreDelayMs`, and restores the previous clipboard text. Insertions are serialized, so rapid utterances cannot interleave their clipboard windows.
@@ -217,16 +241,19 @@ Why the delay? Windows apps don't necessarily read the clipboard the instant the
 
 ## 8. Settings (`%APPDATA%\Murmur\settings.json`)
 
-Written atomically (temp file + rename), debounced, with a `schemaVersion` for future migrations. Reads go through a per-key whitelist: unknown keys are dropped, wrong types fall back to defaults. A corrupt file must never stop the app from starting — worst case the app runs on defaults and overwrites on the next save.
+Written atomically (temp file + rename), debounced (250 ms), and flushed during shutdown, with a `schemaVersion` for future migrations. Reads go through a per-key whitelist: unknown keys are dropped, wrong types fall back to defaults, and numeric ranges are clamped. A corrupt file must never stop the app from starting — worst case the app runs on defaults and overwrites on the next save. A repaired file is rewritten immediately; an unchanged valid file is left alone.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `schemaVersion` | `number` | `1` | migration marker |
+| `schemaVersion` | `number` | `2` | migration marker; a v1 file upgrades in place because every v2 key has a default |
 | `hotkey` | `string` | `F9` | primary push-to-talk key (case-insensitive `UiohookKey` name) |
 | `hotkeyModifiers` | `string[]` | `[]` | modifiers that must be held with the key (`Ctrl`, `Alt`, `Shift`, `Win`) |
+| `microphoneId` | `string \| null` | `null` | input device id from the settings dropdown; `null` = Windows default |
+| `modelPath` | `string \| null` | `null` | `.bin` file name in `resources/models`, an absolute path, or `null` for the bundled model |
+| `language` | `'en' \| 'auto'` | `'en'` | whisper language flag; `auto` needs a multilingual model |
+| `trailingSpace` | `boolean` | `true` | append one space after each transcript |
 | `minUtteranceMs` | `number` | `300` | ignore taps shorter than this |
 | `maxUtteranceMs` | `number` | `120000` | auto-stop cap |
-| `modelPath` | `string` | `null` | override the bundled base.en model |
 | `threads` | `number` | `0` | whisper threads; `0` = auto (logical cores − 1, min 2) |
 | `autostart` | `boolean` | `false` | start with Windows (`app.setLoginItemSettings`) |
 | `overlay` | `object` | `{ position: 'bottom-center' }` | overlay placement / visibility |
@@ -289,9 +316,9 @@ The exact installed path (per-user install is the default) is confirmed when the
 
 Tracks with AGENTS.md §Open decisions; summary with the architectural angle:
 
-1. **Default hotkey + modifier combos** (phase 2) — default is hold **F9** (decided). The config already supports modifiers (`Ctrl+Space`), but whether the settings UI exposes combo rebinding is still open; a single rarely-used key is simplest.
+1. **Default hotkey + modifier combos** (phase 2) — default is hold **F9** (decided). The config supports modifiers (`Ctrl+Space`), and the phase-7 settings window now captures them through the same validator; the default remains a single key because it is the simplest bind.
 2. **Warm vs. cold mic** (phase 3) — **decided: warm.** The stream and AudioWorklet stay open for the app lifetime, so key-down only opens a gate and the first word is preserved. The OS mic-in-use indicator is the accepted trade-off; key-down → first captured sample is now a few milliseconds rather than a device-open round trip.
 3. **Minimum utterance length / tap behavior** (phases 2/5) — **decided: 300 ms.** Shorter holds are discarded as taps after a brief recording pulse; no error is shown. Actual insertion will honour the decision in phase 5.
 4. **Sound cues & confirmation flash** (phases 6/7) — audible feedback keys off user tolerance.
-5. **Hotkey while the settings window is focused** (phase 7) — ignore (safe) vs. allow (pasting into Murmur's own fields).
+5. **Hotkey while the settings window is focused** (phase 7) — current build keeps the hotkey live so a hold is never silently lost, and the inserter's own-window guard refuses to paste the transcript back into Murmur. Fully ignoring the hotkey while Settings is focused remains possible if the owner prefers it.
 6. **Adaptive clipboard-restore delay** (phase 8) — fixed 350 ms is simple; adaptive adds complexity and possible edge cases.

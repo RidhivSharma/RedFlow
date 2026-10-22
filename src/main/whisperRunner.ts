@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import type { WhisperLanguage } from '../shared/settings'
 
 /** One whisper-cli run must finish within this window or it is killed. */
 const TRANSCRIBE_TIMEOUT_MS = 60_000
@@ -105,6 +106,7 @@ export function runWhisper(
   executablePath: string,
   modelPath: string,
   wavPath: string,
+  language: WhisperLanguage,
   threads: number,
   registerActiveRun: (run: ActiveWhisperRun | null) => void
 ): Promise<TranscriptionResult> {
@@ -136,7 +138,7 @@ export function runWhisper(
 
     const child = spawn(
       executablePath,
-      ['-m', modelPath, '-f', wavPath, '-l', 'en', '-nt', '-np', '-t', String(threads)],
+      ['-m', modelPath, '-f', wavPath, '-l', language, '-nt', '-np', '-t', String(threads)],
       {
         // Windows: hide the console window; otherwise a black window flashes on
         // every utterance while the app lives in the tray.

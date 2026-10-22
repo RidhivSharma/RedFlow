@@ -3,13 +3,20 @@ import { BrowserWindow, type WebContents } from 'electron'
 import {
   IPC_CHANNELS,
   type DictationBeginPayload,
-  type DictationSessionPayload
+  type DictationSessionPayload,
+  type RecorderSetDevicePayload,
+  type RecorderTestMonitorPayload
 } from '../../shared/ipc'
 
 type RecorderOutboundChannel =
   | typeof IPC_CHANNELS.dictationBegin
   | typeof IPC_CHANNELS.dictationFinish
   | typeof IPC_CHANNELS.dictationCancel
+
+type RecorderControlChannel =
+  | typeof IPC_CHANNELS.recorderSetDevice
+  | typeof IPC_CHANNELS.recorderListDevices
+  | typeof IPC_CHANNELS.recorderTestMonitor
 
 let recorderWindow: BrowserWindow | null = null
 let loading: Promise<BrowserWindow> | null = null
@@ -162,6 +169,37 @@ export function sendToRecorder(
   }
 
   window.webContents.send(channel, payload)
+  return true
+}
+
+/**
+ * Sends a settings-driven control message to the recorder. Returns `false`
+ * when the hidden window is not available, so the caller can fall back to the
+ * last known device list.
+ */
+export function sendToRecorderControl(
+  channel: typeof IPC_CHANNELS.recorderSetDevice,
+  payload: RecorderSetDevicePayload
+): boolean
+export function sendToRecorderControl(
+  channel: typeof IPC_CHANNELS.recorderTestMonitor,
+  payload: RecorderTestMonitorPayload
+): boolean
+export function sendToRecorderControl(channel: typeof IPC_CHANNELS.recorderListDevices): boolean
+export function sendToRecorderControl(
+  channel: RecorderControlChannel,
+  payload?: RecorderSetDevicePayload | RecorderTestMonitorPayload
+): boolean {
+  const window = getLiveRecorderWindow()
+  if (window === null) {
+    return false
+  }
+
+  if (payload === undefined) {
+    window.webContents.send(channel)
+  } else {
+    window.webContents.send(channel, payload)
+  }
   return true
 }
 

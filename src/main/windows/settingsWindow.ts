@@ -1,8 +1,31 @@
 import { join } from 'node:path'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, type WebContents } from 'electron'
 import { getResourcePath } from '../app/paths'
 
 let settingsWindow: BrowserWindow | null = null
+
+function getLiveSettingsWindow(): BrowserWindow | null {
+  if (settingsWindow === null || settingsWindow.isDestroyed()) {
+    return null
+  }
+  return settingsWindow
+}
+
+/** True only for the settings window; used as an IPC sender check. */
+export function isSettingsWebContents(webContents: WebContents | null): boolean {
+  if (webContents === null) {
+    return false
+  }
+  return getLiveSettingsWindow()?.webContents.id === webContents.id
+}
+
+/** Pushes one update to the settings renderer when it is open. */
+export function sendToSettings(channel: string, payload: unknown): void {
+  const window = getLiveSettingsWindow()
+  if (window !== null) {
+    window.webContents.send(channel, payload)
+  }
+}
 
 /**
  * Opens the settings window, or brings the existing one forward. The window is
@@ -20,10 +43,10 @@ export function openSettingsWindow(): void {
 
   const window = new BrowserWindow({
     title: 'Murmur Settings',
-    width: 720,
-    height: 560,
-    minWidth: 520,
-    minHeight: 420,
+    width: 780,
+    height: 680,
+    minWidth: 560,
+    minHeight: 480,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0b1220',

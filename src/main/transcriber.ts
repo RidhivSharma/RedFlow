@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, rm } from 'node:fs/promises'
 import { availableParallelism } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { app } from 'electron'
+import { DEFAULT_MODEL_FILE, type WhisperLanguage } from '../shared/settings'
 import { getResourcePath } from './app/paths'
 import {
   runWhisper,
@@ -16,10 +17,11 @@ export { TranscriptionError } from './whisperRunner'
 export type { TranscriptionErrorCode, TranscriptionResult } from './whisperRunner'
 
 export interface TranscriberOptions {
-  /** A path from settings.json, or `null` to use the bundled base.en model. */
-  readonly modelPath: string | null
+  /** Read per run so changing the model in Settings applies immediately. */
+  readonly getModelPath: () => string | null
   /** `0` means auto: logical cores minus one, with a floor of two. */
-  readonly threads: number
+  readonly getThreads: () => number
+  readonly getLanguage: () => WhisperLanguage
 }
 
 export interface Transcriber {
@@ -51,8 +53,24 @@ function getBundledExecutablePath(): string {
   return getResourcePath('whisper', 'whisper-cli.exe')
 }
 
-function getBundledModelPath(): string {
-  return getResourcePath('models', 'ggml-base.en.bin')
+function getModelsDirectory(): string {
+  return getResourcePath('models')
+}
+
+/**
+ * `modelPath` in settings.json is either a file name inside the models folder
+ * (portable between dev and installed builds) or an absolute path chosen by
+ * the user. `null` means the bundled model.
+ */
+function resolveModelPath(configured: string | null): { path: string; isOverride: boolean } {
+  const trimmed = configured?.trim() ?? ''
+  if (trimmed === '') {
+    return { path: join(getModelsDirectory(), DEFAULT_MODEL_FILE), isOverride: false }
+  }
+  if (isAbsolute(trimmed)) {
+    return { path: resolve(trimmed), isOverride: true }
+  }
+  return { path: join(getModelsDirectory(), trimmed), isOverride: true }
 }
 
 function getSnapshotPath(): string {
@@ -113,8 +131,8 @@ function assertModel(modelPath: string, isOverride: boolean): void {
   }
 
   const guidance = isOverride
-    ? 'Fix modelPath in settings.json or remove it to use the bundled model.'
-    : 'Download ggml-base.en.bin into resources/models (see README.md).'
+    ? 'Choose another model in Murmur Settings, or restore the file in the models folder.'
+    : `Download ${DEFAULT_MODEL_FILE} into resources/models (see README.md).`
   throw new TranscriptionError(
     'model-missing',
     `The Whisper model is missing at ${modelPath}. ${guidance}`
@@ -129,10 +147,6 @@ function assertModel(modelPath: string, isOverride: boolean): void {
  */
 export function createTranscriber(options: TranscriberOptions): Transcriber {
   const bundledExecutable = getBundledExecutablePath()
-  const configuredModel = options.modelPath?.trim() ?? ''
-  const isModelOverride = configuredModel !== ''
-  const modelPath = isModelOverride ? resolve(configuredModel) : getBundledModelPath()
-  const threads = resolveThreadCount(options.threads)
 
   let queue: Promise<void> = Promise.resolve()
   let activeRun: ActiveWhisperRun | null = null
@@ -168,10 +182,18 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
 
       try {
         assertExecutable(bundledExecutable)
-        assertModel(modelPath, isModelOverride)
-        return await runWhisper(bundledExecutable, modelPath, snapshotPath, threads, (active) => {
-          activeRun = active
-        })
+        const model = resolveModelPath(options.getModelPath())
+        assertModel(model.path, model.isOverride)
+        return await runWhisper(
+          bundledExecutable,
+          model.path,
+          snapshotPath,
+          options.getLanguage(),
+          resolveThreadCount(options.getThreads()),
+          (active) => {
+            activeRun = active
+          }
+        )
       } finally {
         await removeSnapshot(snapshotPath)
       }

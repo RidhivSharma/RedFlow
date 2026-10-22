@@ -1,11 +1,13 @@
 import { app, dialog } from 'electron'
+import { applyAutostart } from './app/autostart'
 import { configureSessionPermissions } from './app/permissions'
 import { acquireSingleInstanceLock } from './app/singleInstance'
 import { createTray, destroyTray, setTrayTooltip } from './app/tray'
 import { createDictationController, type DictationController } from './dictation'
-import { startHotkeyListener, stopHotkeyListener } from './hotkey'
+import { createHotkeyController, type HotkeyController } from './hotkeyController'
 import { registerIpcHandlers } from './ipc'
-import { ensureSettingsFile, getSettingsFilePath, loadStartupPreferences } from './settings'
+import { flushSettings, getSettings, initializeSettings } from './settings'
+import { createSettingsController, type SettingsController } from './settingsController'
 import { openSettingsWindow } from './windows/settingsWindow'
 
 // Windows: setting an explicit AppUserModelID makes Windows attribute the tray
@@ -16,6 +18,8 @@ app.setName('Murmur')
 app.setAppUserModelId(APP_USER_MODEL_ID)
 
 let activeDictation: DictationController | null = null
+let activeHotkey: HotkeyController | null = null
+let activeSettings: SettingsController | null = null
 
 function reportStartupError(message: string, error: unknown): void {
   console.error(`[murmur] ${message}`, error)
@@ -27,10 +31,31 @@ function reportStartupError(message: string, error: unknown): void {
 
 async function startApp(): Promise<void> {
   try {
-    await ensureSettingsFile()
+    await initializeSettings()
   } catch (error) {
-    reportStartupError(`Could not create the settings file at ${getSettingsFilePath()}.`, error)
+    reportStartupError('Could not load Murmur settings.', error)
+    app.quit()
+    return
   }
+
+  const settings = getSettings()
+
+  const dictation = createDictationController({ getSettings })
+  activeDictation = dictation
+
+  const hotkey = createHotkeyController({
+    onStart: dictation.start,
+    onStop: dictation.stop,
+    onError: (message, error) => {
+      console.error(`[murmur] ${message}`, error)
+      setTrayTooltip('Hotkey unavailable')
+    }
+  })
+  activeHotkey = hotkey
+
+  // Registers the settings IPC handlers and connects live changes to the
+  // hotkey, microphone pipeline, and Windows login item.
+  activeSettings = createSettingsController({ dictation, hotkey })
 
   try {
     createTray({
@@ -47,31 +72,13 @@ async function startApp(): Promise<void> {
   // checks the requesting window, so the settings window still cannot.
   configureSessionPermissions()
 
-  const preferences = await loadStartupPreferences()
-  const dictation = createDictationController({
-    minUtteranceMs: preferences.minUtteranceMs,
-    maxUtteranceMs: preferences.maxUtteranceMs,
-    modelPath: preferences.modelPath,
-    threads: preferences.threads,
-    pasteRestoreDelayMs: preferences.pasteRestoreDelayMs
-  })
-  activeDictation = dictation
-
   // Create the hidden window and warm the microphone before the hotkey goes
   // live. Capture failures are reported through the tray, and the app keeps
   // running so a later attempt can retry.
   await dictation.initialize()
 
-  startHotkeyListener({
-    key: preferences.hotkey.key,
-    modifiers: preferences.hotkey.modifiers,
-    onStart: dictation.start,
-    onStop: dictation.stop,
-    onError: (message, error) => {
-      console.error(`[murmur] ${message}`, error)
-      setTrayTooltip('Hotkey unavailable')
-    }
-  })
+  hotkey.apply({ key: settings.hotkey, modifiers: settings.hotkeyModifiers })
+  applyAutostart(settings.autostart)
 
   console.log('[murmur] ready - running in the system tray')
 }
@@ -110,20 +117,34 @@ function bootstrap(): void {
     }
 
     shuttingDown = true
-    stopHotkeyListener()
+    const settingsController = activeSettings
+    const hotkeyController = activeHotkey
     const dictation = activeDictation
+    activeSettings = null
+    activeHotkey = null
     activeDictation = null
+
+    settingsController?.dispose()
+    hotkeyController?.dispose()
 
     void (async () => {
       try {
         await dictation?.dispose()
       } catch (error) {
         console.error('[murmur] shutdown cleanup failed', error)
-      } finally {
-        destroyTray()
-        cleanupComplete = true
-        app.quit()
       }
+
+      try {
+        // Persist a change made just before Quit; the save is normally
+        // debounced, so it may still be waiting.
+        await flushSettings()
+      } catch (error) {
+        console.error('[murmur] settings could not be flushed during shutdown', error)
+      }
+
+      destroyTray()
+      cleanupComplete = true
+      app.quit()
     })()
   })
 

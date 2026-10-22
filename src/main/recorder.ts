@@ -1,26 +1,32 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { app, ipcMain, type IpcMainEvent } from 'electron'
+import { app, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { readPcm16WavInfo, RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import {
   IPC_CHANNELS,
   isDictationAudioPayload,
   isDictationCaptureErrorPayload,
   isDictationLevelPayload,
+  isMicrophoneDeviceListPayload,
+  isMicLevelPayload,
   isRecorderStatusPayload,
   type CaptureErrorCode,
   type DictationBeginPayload,
+  type MicrophoneDevice,
+  type RecorderConfigPayload,
   type RecorderStatusPayload
 } from '../shared/ipc'
 import {
   createRecorderWindow,
   destroyRecorderWindow,
   isRecorderWebContents,
-  sendToRecorder
+  sendToRecorder,
+  sendToRecorderControl
 } from './windows/recorderWindow'
 
 const FINISH_TIMEOUT_MS = 8000
 const MIC_WARM_TIMEOUT_MS = 5000
+const DEVICE_LIST_TIMEOUT_MS = 800
 
 export interface UtteranceSaved {
   readonly sessionId: string
@@ -41,6 +47,8 @@ export interface RecorderOptions {
   readonly onError: (failure: RecorderFailure) => void
   /** Receives the recorder renderer's ~15 fps level sample for the active session. */
   readonly onLevel?: (level: number) => void
+  /** Read live from settings so a new microphone applies to the next utterance. */
+  readonly getMicrophoneId: () => string | null
 }
 
 export interface RecorderController {
@@ -52,6 +60,14 @@ export interface RecorderController {
   finish(sessionId: string): void
   /** Discards the current utterance without producing a file. */
   cancel(sessionId: string): void
+  /** Switches the warm capture pipeline to another input device. */
+  setMicrophone(deviceId: string | null): void
+  /** Asks the recorder renderer for its current input devices. */
+  listMicrophones(): Promise<readonly MicrophoneDevice[]>
+  setMicrophoneListListener(listener: ((devices: readonly MicrophoneDevice[]) => void) | null): void
+  /** Starts/stops the settings window's live level stream. */
+  setMicTestMonitor(enabled: boolean): void
+  setMicTestLevelListener(listener: ((level: number) => void) | null): void
   /** Removes IPC listeners and destroys the hidden window. */
   dispose(): void
 }
@@ -94,6 +110,21 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
   let warmStatus: RecorderStatusPayload | null = null
   let warmResolver: ((status: RecorderStatusPayload) => void) | null = null
   let initPromise: Promise<boolean> | null = null
+  let deviceCache: readonly MicrophoneDevice[] = []
+  let deviceRequestResolver: ((devices: readonly MicrophoneDevice[]) => void) | null = null
+  let deviceRequestTimer: NodeJS.Timeout | null = null
+  let microphoneListListener: ((devices: readonly MicrophoneDevice[]) => void) | null = null
+  let micTestLevelListener: ((level: number) => void) | null = null
+
+  function settleDeviceRequest(devices: readonly MicrophoneDevice[]): void {
+    if (deviceRequestTimer !== null) {
+      clearTimeout(deviceRequestTimer)
+      deviceRequestTimer = null
+    }
+    const resolver = deviceRequestResolver
+    deviceRequestResolver = null
+    resolver?.(devices)
+  }
 
   function clearFinishTimer(): void {
     if (finishTimer !== null) {
@@ -399,12 +430,94 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
     }
   }
 
+  function handleDevices(event: IpcMainEvent, payload: unknown): void {
+    if (!isRecorderWebContents(event.sender)) {
+      return
+    }
+
+    if (!isMicrophoneDeviceListPayload(payload)) {
+      console.warn('[murmur] ignored a malformed microphone list payload')
+      return
+    }
+
+    deviceCache = payload.devices
+    try {
+      microphoneListListener?.(deviceCache)
+    } catch (error) {
+      console.error('[murmur] microphone list handler failed', error)
+    }
+    settleDeviceRequest(deviceCache)
+  }
+
+  function handleMonitorLevel(event: IpcMainEvent, payload: unknown): void {
+    if (!isRecorderWebContents(event.sender)) {
+      return
+    }
+
+    if (!isMicLevelPayload(payload)) {
+      console.warn('[murmur] ignored a malformed test-monitor level payload')
+      return
+    }
+
+    try {
+      micTestLevelListener?.(payload.level)
+    } catch (error) {
+      console.error('[murmur] test microphone level handler failed', error)
+    }
+  }
+
+  function handleGetConfig(event: IpcMainInvokeEvent): RecorderConfigPayload {
+    if (!isRecorderWebContents(event.sender)) {
+      throw new Error('Recorder configuration is only available to the recorder window.')
+    }
+
+    // Read live from settings: the recorder asks once before warming its
+    // pipeline, and a change made while the window was loading is still picked
+    // up instead of being lost with an earlier message.
+    return { microphoneId: options.getMicrophoneId() }
+  }
+
+  function listMicrophones(): Promise<readonly MicrophoneDevice[]> {
+    if (!sendToRecorderControl(IPC_CHANNELS.recorderListDevices)) {
+      return Promise.resolve(deviceCache)
+    }
+
+    settleDeviceRequest(deviceCache)
+    return new Promise<readonly MicrophoneDevice[]>((resolve) => {
+      deviceRequestResolver = resolve
+      deviceRequestTimer = setTimeout(() => {
+        deviceRequestTimer = null
+        const pending = deviceRequestResolver
+        deviceRequestResolver = null
+        pending?.(deviceCache)
+      }, DEVICE_LIST_TIMEOUT_MS)
+    })
+  }
+
+  function setMicrophone(deviceId: string | null): void {
+    const delivered = sendToRecorderControl(IPC_CHANNELS.recorderSetDevice, { deviceId })
+    if (!delivered) {
+      // The next recorder startup reads the value from settings instead.
+      console.warn('[murmur] recorder window is not available; microphone change will apply later')
+    }
+  }
+
+  function setMicTestMonitor(enabled: boolean): void {
+    sendToRecorderControl(IPC_CHANNELS.recorderTestMonitor, { enabled })
+  }
+
   function dispose(): void {
     ipcMain.off(IPC_CHANNELS.dictationAudio, handleAudio)
     ipcMain.off(IPC_CHANNELS.dictationCaptureError, handleCaptureError)
     ipcMain.off(IPC_CHANNELS.dictationLevel, handleLevel)
     ipcMain.off(IPC_CHANNELS.recorderStatus, handleStatus)
+    ipcMain.off(IPC_CHANNELS.recorderDevices, handleDevices)
+    ipcMain.off(IPC_CHANNELS.recorderMonitorLevel, handleMonitorLevel)
+    ipcMain.removeHandler(IPC_CHANNELS.recorderGetConfig)
+    settleDeviceRequest(deviceCache)
     warmResolver = null
+    microphoneListListener = null
+    micTestLevelListener = null
     clearActiveSession()
     destroyRecorderWindow()
   }
@@ -413,6 +526,9 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
   ipcMain.on(IPC_CHANNELS.dictationCaptureError, handleCaptureError)
   ipcMain.on(IPC_CHANNELS.dictationLevel, handleLevel)
   ipcMain.on(IPC_CHANNELS.recorderStatus, handleStatus)
+  ipcMain.on(IPC_CHANNELS.recorderDevices, handleDevices)
+  ipcMain.on(IPC_CHANNELS.recorderMonitorLevel, handleMonitorLevel)
+  ipcMain.handle(IPC_CHANNELS.recorderGetConfig, handleGetConfig)
 
   return {
     initialize: () => {
@@ -422,6 +538,15 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
     begin,
     finish,
     cancel,
+    setMicrophone,
+    listMicrophones,
+    setMicrophoneListListener: (listener) => {
+      microphoneListListener = listener
+    },
+    setMicTestMonitor,
+    setMicTestLevelListener: (listener) => {
+      micTestLevelListener = listener
+    },
     dispose
   }
 }

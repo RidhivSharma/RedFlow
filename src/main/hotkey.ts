@@ -27,7 +27,7 @@ interface ActiveHotkeyListener {
 /** How long insertion waits for a held hotkey modifier before giving up. */
 const MODIFIER_RELEASE_TIMEOUT_MS = 5000
 
-const MODIFIER_EVENT_FLAGS: Readonly<
+export const MODIFIER_EVENT_FLAGS: Readonly<
   Record<HotkeyModifier, 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'>
 > = {
   Ctrl: 'ctrlKey',

@@ -1,3 +1,6 @@
+import type { HotkeyBinding } from './hotkey'
+import type { ModelOption, MurmurSettings, SettingsPatch, SettingsUpdateResult } from './settings'
+
 /**
  * IPC channel names and payload types shared by the main process, preload
  * scripts, and renderers. Channel strings exist here and nowhere else.
@@ -18,10 +21,42 @@ export const IPC_CHANNELS = {
   dictationLevel: 'dictation:level',
   /** hidden recorder → main: result of the one-time microphone warm-up. */
   recorderStatus: 'recorder:status',
+  /** hidden recorder → main: the microphones it can see (labels need permission). */
+  recorderDevices: 'recorder:devices',
+  /** main → hidden recorder: microphone chosen in settings (`null` = system default). */
+  recorderSetDevice: 'recorder:set-device',
+  /** main → hidden recorder: ask for a fresh microphone list. */
+  recorderListDevices: 'recorder:list-devices',
+  /** hidden recorder → main: the selected microphone for the next utterance. */
+  recorderGetConfig: 'recorder:get-config',
+  /** main → hidden recorder: start/stop the settings window's live meter. */
+  recorderTestMonitor: 'recorder:test-monitor',
+  /** hidden recorder → main: live level while the settings window tests a mic. */
+  recorderMonitorLevel: 'recorder:monitor-level',
   /** main → overlay: the pill's current state (and an error detail). */
   overlayState: 'overlay:state',
   /** main → overlay: one microphone level sample for the live meter. */
-  overlayLevel: 'overlay:level'
+  overlayLevel: 'overlay:level',
+  /** settings → main (invoke): settings, model files, and microphones. */
+  settingsGetState: 'settings:get-state',
+  /** settings → main (invoke): validate and save a partial settings change. */
+  settingsUpdate: 'settings:update',
+  /** main → settings: the full snapshot after a change. */
+  settingsChanged: 'settings:changed',
+  /** main → settings: the microphone list changed (hotplug or permission). */
+  settingsDevices: 'settings:devices',
+  /** main → settings: a background save failed. */
+  settingsError: 'settings:error',
+  /** main → settings: one 0–1 level sample for the test microphone meter. */
+  settingsMicLevel: 'settings:mic-level',
+  /** settings → main (invoke): start the live microphone test. */
+  settingsStartMicTest: 'settings:start-mic-test',
+  /** settings → main (invoke): stop the live microphone test. */
+  settingsStopMicTest: 'settings:stop-mic-test',
+  /** settings → main (invoke): capture the next key or combo as the hotkey. */
+  settingsCaptureHotkey: 'settings:capture-hotkey',
+  /** settings → main (invoke): cancel an in-flight hotkey capture. */
+  settingsCancelHotkeyCapture: 'settings:cancel-hotkey-capture'
 } as const
 
 export interface AppInfo {
@@ -31,9 +66,47 @@ export interface AppInfo {
   readonly platform: string
 }
 
+export interface MicrophoneDevice {
+  readonly deviceId: string
+  readonly label: string
+}
+
+export interface MicrophoneDeviceListPayload {
+  readonly devices: readonly MicrophoneDevice[]
+}
+
+export interface MicLevelPayload {
+  readonly level: number
+}
+
+export interface SettingsSnapshot {
+  readonly settings: MurmurSettings
+  readonly models: readonly ModelOption[]
+  /** File name used when `settings.modelPath` is `null`. */
+  readonly defaultModelFile: string
+  readonly microphones: readonly MicrophoneDevice[]
+}
+
+export interface SettingsErrorPayload {
+  readonly message: string
+}
+
+export type Unsubscribe = () => void
+
 /** The only API exposed to the settings renderer through `window.murmur`. */
 export interface MurmurBridge {
   getAppInfo(): Promise<AppInfo>
+  getSettings(): Promise<SettingsSnapshot>
+  updateSettings(patch: SettingsPatch): Promise<SettingsUpdateResult>
+  onSettingsChanged(handler: (settings: MurmurSettings) => void): Unsubscribe
+  onMicrophonesChanged(handler: (devices: readonly MicrophoneDevice[]) => void): Unsubscribe
+  onSettingsError(handler: (message: string) => void): Unsubscribe
+  onMicLevel(handler: (level: number) => void): Unsubscribe
+  startMicTest(): Promise<void>
+  stopMicTest(): Promise<void>
+  /** Resolves with the binding captured next, or `null` after Esc/timeout. */
+  captureHotkey(): Promise<HotkeyBinding | null>
+  cancelHotkeyCapture(): Promise<void>
 }
 
 /* -------------------------------------------------------------------------- */
@@ -90,13 +163,32 @@ export interface DictationLevelPayload {
   readonly level: number
 }
 
+export interface RecorderSetDevicePayload {
+  /** `null` means the Windows default input device. */
+  readonly deviceId: string | null
+}
+
+export interface RecorderConfigPayload {
+  readonly microphoneId: string | null
+}
+
+export interface RecorderTestMonitorPayload {
+  readonly enabled: boolean
+}
+
 /** The only API exposed to the hidden recorder renderer through `window.murmurRecorder`. */
 export interface RecorderBridge {
   onBegin(handler: (payload: DictationBeginPayload) => void): void
   onFinish(handler: (payload: DictationSessionPayload) => void): void
   onCancel(handler: (payload: DictationSessionPayload) => void): void
+  onSetDevice(handler: (payload: RecorderSetDevicePayload) => void): void
+  onTestMonitor(handler: (payload: RecorderTestMonitorPayload) => void): void
+  onRequestDevices(handler: () => void): void
+  getConfig(): Promise<RecorderConfigPayload>
   sendAudio(payload: DictationAudioPayload): void
   sendLevel(payload: DictationLevelPayload): void
+  sendMonitorLevel(payload: MicLevelPayload): void
+  reportDevices(payload: MicrophoneDeviceListPayload): void
   reportCaptureError(payload: DictationCaptureErrorPayload): void
   reportStatus(payload: RecorderStatusPayload): void
 }
@@ -220,6 +312,60 @@ export function isDictationLevelPayload(value: unknown): value is DictationLevel
     Number.isFinite(level) &&
     level >= 0 &&
     level <= 1
+  )
+}
+
+function isDeviceId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 512
+}
+
+export function isRecorderSetDevicePayload(value: unknown): value is RecorderSetDevicePayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const deviceId = value['deviceId']
+  return deviceId === null || isDeviceId(deviceId)
+}
+
+export function isRecorderConfigPayload(value: unknown): value is RecorderConfigPayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const microphoneId = value['microphoneId']
+  return microphoneId === null || isDeviceId(microphoneId)
+}
+
+export function isRecorderTestMonitorPayload(value: unknown): value is RecorderTestMonitorPayload {
+  return isRecord(value) && typeof value['enabled'] === 'boolean'
+}
+
+export function isMicLevelPayload(value: unknown): value is MicLevelPayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const level = value['level']
+  return typeof level === 'number' && Number.isFinite(level) && level >= 0 && level <= 1
+}
+
+export function isMicrophoneDeviceListPayload(
+  value: unknown
+): value is MicrophoneDeviceListPayload {
+  if (!isRecord(value) || !Array.isArray(value['devices'])) {
+    return false
+  }
+
+  return (
+    value['devices'].length <= 64 &&
+    value['devices'].every(
+      (device: unknown) =>
+        isRecord(device) &&
+        isDeviceId(device['deviceId']) &&
+        typeof device['label'] === 'string' &&
+        device['label'].length <= 256
+    )
   )
 }
 

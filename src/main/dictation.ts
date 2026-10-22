@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
+import type { MicrophoneDevice } from '../shared/ipc'
+import type { MurmurSettings } from '../shared/settings'
 import { setTrayTooltip } from './app/tray'
 import { waitForHotkeyModifiersReleased } from './hotkey'
 import { createInserter, InsertionError } from './inserter'
@@ -10,16 +12,12 @@ import { createTranscriber } from './transcriber'
 export type DictationState = 'idle' | 'recording' | 'finalizing'
 
 export interface DictationControllerOptions {
-  /** Holds shorter than this are discarded as taps. */
-  readonly minUtteranceMs: number
-  /** Hard upper bound for one utterance; the recorder also enforces its own cap. */
-  readonly maxUtteranceMs: number
-  /** A path from settings.json, or `null` for the bundled base.en model. */
-  readonly modelPath: string | null
-  /** Whisper thread count; `0` means auto. */
-  readonly threads: number
-  /** Delay before the borrowed clipboard is restored, from settings.json. */
-  readonly pasteRestoreDelayMs: number
+  /**
+   * Read live so every settings change (hotkey-adjacent limits, model,
+   * language, trailing space, microphone) applies to the next utterance
+   * without restarting the app.
+   */
+  readonly getSettings: () => MurmurSettings
 }
 
 export interface DictationController {
@@ -27,6 +25,13 @@ export interface DictationController {
   readonly initialize: () => Promise<void>
   readonly start: () => void
   readonly stop: (durationMs: number) => void
+  readonly setMicrophone: (deviceId: string | null) => void
+  readonly listMicrophones: () => Promise<readonly MicrophoneDevice[]>
+  readonly setMicrophoneListListener: (
+    listener: ((devices: readonly MicrophoneDevice[]) => void) | null
+  ) => void
+  readonly startMicTest: (onLevel: (level: number) => void) => void
+  readonly stopMicTest: () => void
   /** Stops capture, transcription, and insertion; resolves after cleanup. */
   readonly dispose: () => Promise<void>
 }
@@ -44,18 +49,17 @@ function toTooltip(message: string): string {
 export function createDictationController(
   options: DictationControllerOptions
 ): DictationController {
-  const minUtteranceMs = Math.max(0, options.minUtteranceMs)
-  const maxUtteranceMs = Math.min(Math.max(options.maxUtteranceMs, 1), RECORDER_MAX_UTTERANCE_MS)
-
   const transcriber = createTranscriber({
-    modelPath: options.modelPath,
-    threads: options.threads
+    getModelPath: () => options.getSettings().modelPath,
+    getThreads: () => options.getSettings().threads,
+    getLanguage: () => options.getSettings().language
   })
 
   const overlay = createOverlayPresenter()
 
   const inserter = createInserter({
-    pasteRestoreDelayMs: options.pasteRestoreDelayMs,
+    getPasteRestoreDelayMs: () => options.getSettings().pasteRestoreDelayMs,
+    getTrailingSpace: () => options.getSettings().trailingSpace,
     waitForModifiersReleased: () => waitForHotkeyModifiersReleased()
   })
 
@@ -144,7 +148,8 @@ export function createDictationController(
   const recorder = createRecorderController({
     onUtteranceSaved: handleUtteranceSaved,
     onError: handleRecorderError,
-    onLevel: (level) => overlay.setLevel(level)
+    onLevel: (level) => overlay.setLevel(level),
+    getMicrophoneId: () => options.getSettings().microphoneId
   })
 
   function beginFinishing(id: string): void {
@@ -164,6 +169,10 @@ export function createDictationController(
       return
     }
 
+    const maxUtteranceMs = Math.min(
+      Math.max(options.getSettings().maxUtteranceMs, 1),
+      RECORDER_MAX_UTTERANCE_MS
+    )
     const id = randomUUID()
     sessionId = id
     state = 'recording'
@@ -194,6 +203,7 @@ export function createDictationController(
       return
     }
 
+    const minUtteranceMs = Math.max(0, options.getSettings().minUtteranceMs)
     if (durationMs < minUtteranceMs) {
       const id = sessionId
       clearSession()
@@ -214,10 +224,35 @@ export function createDictationController(
     await recorder.initialize()
   }
 
+  function setMicrophone(deviceId: string | null): void {
+    recorder.setMicrophone(deviceId)
+  }
+
+  function listMicrophones(): Promise<readonly MicrophoneDevice[]> {
+    return recorder.listMicrophones()
+  }
+
+  function setMicrophoneListListener(
+    listener: ((devices: readonly MicrophoneDevice[]) => void) | null
+  ): void {
+    recorder.setMicrophoneListListener(listener)
+  }
+
+  function startMicTest(onLevel: (level: number) => void): void {
+    recorder.setMicTestLevelListener(onLevel)
+    recorder.setMicTestMonitor(true)
+  }
+
+  function stopMicTest(): void {
+    recorder.setMicTestMonitor(false)
+    recorder.setMicTestLevelListener(null)
+  }
+
   async function dispose(): Promise<void> {
     overlay.dispose()
     clearSession()
     state = 'idle'
+    stopMicTest()
     recorder.dispose()
     // Mark insertion as closed before whisper settles, so a transcript that
     // arrives during shutdown cannot borrow the clipboard on the way out.
@@ -230,6 +265,11 @@ export function createDictationController(
     initialize,
     start,
     stop,
+    setMicrophone,
+    listMicrophones,
+    setMicrophoneListListener,
+    startMicTest,
+    stopMicTest,
     dispose
   }
 }

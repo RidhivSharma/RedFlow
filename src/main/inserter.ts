@@ -26,7 +26,9 @@ export class InsertionError extends Error {
 
 export interface InserterOptions {
   /** How long the target app gets to read the clipboard before it is restored. */
-  readonly pasteRestoreDelayMs: number
+  readonly getPasteRestoreDelayMs: () => number
+  /** Append one trailing space so consecutive dictations do not run together. */
+  readonly getTrailingSpace: () => boolean
   /**
    * Resolves `true` once the active hotkey's modifiers are physically up.
    * Resolves `false` if they are still held after the wait limit.
@@ -58,10 +60,12 @@ function hasFocusedMurmurWindow(): boolean {
 }
 
 async function performInsert(text: string, options: InserterOptions): Promise<void> {
-  const payload = text.trim()
-  if (payload === '') {
+  const trimmed = text.trim()
+  if (trimmed === '') {
     throw new InsertionError('empty-text', 'There was no text to insert.')
   }
+
+  const payload = options.getTrailingSpace() && !/\s$/.test(trimmed) ? `${trimmed} ` : trimmed
 
   // Pasting into Murmur itself is always wrong. The settings window is the only
   // focusable Murmur window today; the overlay is non-focusable by design.
@@ -103,7 +107,7 @@ async function performInsert(text: string, options: InserterOptions): Promise<vo
     uIOhook.keyTap(UiohookKey.V, [UiohookKey.Ctrl])
     // Apps such as Word and Excel read the clipboard slightly after the
     // keystroke arrives; restoring too early would paste the previous content.
-    await delay(clampRestoreDelay(options.pasteRestoreDelayMs))
+    await delay(clampRestoreDelay(options.getPasteRestoreDelayMs()))
   } catch (error) {
     insertionFailed = true
     console.error('[murmur] the synthetic Ctrl+V could not be sent', error)

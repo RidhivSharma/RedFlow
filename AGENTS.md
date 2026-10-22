@@ -52,22 +52,30 @@ RedFlow/
 ├─ src/
 │  ├─ main/                     ← main process (Node side, the "conductor")
 │  │  ├─ index.ts               ← bootstrapping only
-│  │  ├─ app/                   ← app lifecycle, single-instance, tray
+│  │  ├─ app/                   ← app lifecycle, single-instance, tray, autostart
 │  │  ├─ hotkey.ts              ← uiohook-napi glue (watch keys, tap Ctrl+V)
+│  │  ├─ hotkeyBinding.ts       ← key/modifier names → uiohook keycodes
+│  │  ├─ hotkeyController.ts    ← live rebinding + capture suspension
+│  │  ├─ hotkeyCapture.ts       ← global next-key capture for settings
 │  │  ├─ dictation.ts           ← utterance state machine
 │  │  ├─ recorder.ts            ← capture session + temp WAV writer
 │  │  ├─ transcriber.ts         ← WAV snapshots + FIFO transcription queue
 │  │  ├─ whisperRunner.ts       ← one whisper-cli spawn + stdout parsing
 │  │  ├─ inserter.ts            ← clipboard save/set/restore + Ctrl+V
 │  │  ├─ settings.ts            ← JSON store in userData
+│  │  ├─ settingsController.ts  ← settings IPC + live application
+│  │  ├─ models.ts              ← lists the bundled whisper models
 │  │  └─ windows/               ← recorder / overlay / settings window setup
 │  ├─ preload/                  ← contextBridge scripts (tiny, typed)
 │  ├─ renderer/
 │  │  ├─ recorder/              ← hidden window: mic capture + WAV encoding
 │  │  ├─ overlay/               ← status indicator / result / error UI
-│  │  └─ settings/              ← settings window (React)
+│  │  └─ settings/              ← settings window (React + components)
 │  └─ shared/
-│     └─ ipc.ts                 ← IPC channel names + payload types
+│     ├─ ipc.ts                 ← IPC channel names + payload types
+│     ├─ audio.ts               ← WAV constants + encoder/validator
+│     ├─ hotkey.ts              ← shared hotkey binding types
+│     └─ settings.ts            ← settings schema + defaults + guards
 └─ build/                       ← generated build output (gitignored)
 ```
 
@@ -96,7 +104,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 4 | Whisper transcription | ✓ done |
 | 5 | Text insertion | ✓ done |
 | 6 | Overlay UI | ✓ done |
-| 7 | Settings window + JSON store | ☐ not started |
+| 7 | Settings window + JSON store | ✓ done |
 | 8 | Quality & reliability | ☐ not started |
 | 9 | Installer (NSIS) | ☐ not started |
 | 10 | Release | ☐ not started |
@@ -161,12 +169,16 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 6 status: **done and verified on Windows** (single 1920×1080 display at 125% scaling). The pill renders Listening (pulsing dot + 14-segment level meter), Transcribing (spinner), Done ("Inserted" check), and Error (red alert + two-line detail); Done auto-hides after 900 ms and Error after 5 s. The meter was exercised with Chromium's fake audio device and a known-volume WAV (lit segments changed 3 → 8 → 12). Win32 inspection confirmed `WS_EX_NOACTIVATE`, `WS_EX_TRANSPARENT`, topmost, and a visible non-activating window; the foreground window handle never changed across the focus trials. The overlay is now shown once with `showInactive()` and kept mapped with fully transparent idle content, because the old hide/show cycle spent roughly 150 ms in `ShowWindow`; with the mapped window, key-down → visible pill measured **9–45 ms over eight runs** (the screen-sampling probe itself costs ~10–15 ms per sample), comfortably inside the ~100 ms target. Mixed-DPI multi-monitor placement was **not** exercised — the dev machine has one display — although positioning uses Electron DIP `workArea` bounds and reacts to display changes; repeat that check when a second monitor is available.
 
 ### Phase 7 — Settings window + JSON store
-- [ ] Settings window (React), singleton, opened from tray; closing it never quits the app.
-- [ ] Fields: hotkey rebind, model path override, start-with-Windows toggle, overlay position, sound cues on/off.
-- [ ] Robust store: validated read with per-key whitelist + defaults, atomic writes (temp file + rename), debounced saves.
-- [ ] Corrupt/missing JSON → app still starts with defaults; settings editable again.
-- [ ] Applied settings take effect without restarting where feasible (hotkey at minimum after restart is acceptable if noted).
-- **Done when:** every field round-trips to `settings.json` in `%APPDATA%\Murmur` and survives an app restart.
+- [x] Settings window (React), singleton, opened from tray; closing it never quits the app.
+- [x] Fields: hotkey rebind, microphone selection with a live test meter, whisper model selection, language (`en` / auto), trailing-space toggle, and start-with-Windows toggle. Overlay position and sound cues remain open decisions (phase 8/10), so they are not exposed yet.
+- [x] Robust store: validated read with per-key whitelist + defaults, atomic writes (temp file + rename), 250 ms debounced saves, flushed on quit.
+- [x] Corrupt/missing JSON → app still starts with defaults and rewrites a valid file; settings remain editable.
+- [x] Applied settings take effect without restarting: hotkey rebind, microphone switch (deferred during an utterance), model/language/threads per whisper run, trailing space and clipboard delay per insertion, autostart immediately.
+- **Done when:** every exposed field round-trips to `settings.json` in `%APPDATA%\Murmur` and survives an app restart.
+
+> Phase 7 status: **done and verified on Windows** (dev and production builds, 1920×1080 at 125% scaling). The window renders the Dictation, Microphone, Model & language, and Start with Windows cards; closing it leaves the tray app running, and the production preview loaded the same window from the packaged-style `file://` renderer. Hotkey capture replaced F9 with Ctrl+F10 through the global hook, applied live, and was then restored to F9; Escape, the Cancel button, and the 15 s timeout all restored the previous binding. Selecting a non-default microphone restarted the warm pipeline, and switching devices mid-utterance deferred the change until the WAV was delivered. The test meter rose from 1–3 lit segments at ambient noise to 7 while a tone played. `trailingSpace` inserted a trailing space in Notepad when on and no space when off; `language: "auto"` transcribed correctly with the base.en model. Start with Windows created and removed the `dev.murmur.app` Run entry, and turning it on/off round-tripped. Settings survived a full app restart (`mic`, language, trailing space), a corrupt JSON file started the app on defaults and was rewritten, and a missing file was recreated with defaults. `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build` pass.
+
+> Deferred: overlay placement (only `bottom-center` is implemented) and sound cues (open decision) are not shown in the settings UI yet. A microphone-test failure still reports through the tray tooltip rather than inside the settings window.
 
 ### Phase 8 — Quality & reliability
 - [ ] Edge cases: rapid press-during-transcribe, press-during-paste — queue stays ordered, no double inserts.
@@ -198,9 +210,9 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 
 Owned decisions are listed above. These still need the owner's answer when their phase arrives (details in `docs/ARCHITECTURE.md → Open decisions`):
 
-1. Default hotkey key, and whether rebinding allows modifier combos (phase 2). **Default decided: hold F9.** Binding config already supports modifier combos (`Ctrl+Space`); whether the settings UI exposes them is still open.
+1. Default hotkey key, and whether rebinding allows modifier combos (phase 2). **Default decided: hold F9.** The settings window now captures bare keys and modifier combos through the same validator, so `Ctrl+Space`-style bindings are exposed in the UI.
 2. Mic warm (stream always open, Win11 shows a mic indicator) vs. cold (open per utterance) (phase 3). **Decided: warm.** The stream and worklet stay open for the app lifetime so key-down flips a flag instead of opening a device; that is what keeps the first word from being cut. Trade-off: Windows shows the mic-in-use indicator while Murmur runs.
-3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5). **Decided: 300 ms.** F9 still shows the recording state immediately; a hold shorter than 300 ms is discarded as a tap (no insertion, no error). `dictation.ts` owns the guard; insertion will honour it in phase 5.
-4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7).
-5. Hotkey ignored while Murmur's own settings window is focused? (phase 7).
+3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5). **Decided: 300 ms.** F9 still shows the recording state immediately; a hold shorter than 300 ms is discarded as a tap (no insertion, no error). `dictation.ts` owns the guard; phase 5 honours it before insertion.
+4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7). **Still open.** The overlay confirmation ships, but audible cues are not implemented or exposed in settings yet.
+5. Hotkey ignored while Murmur's own settings window is focused? (phase 7). **Current behavior:** the hotkey stays live so a hold is not lost, and the inserter refuses to paste into any focused Murmur window. Fully ignoring the hotkey while Settings is focused remains possible if the owner prefers it.
 6. Adaptive vs. fixed clipboard-restore delay (phase 8).

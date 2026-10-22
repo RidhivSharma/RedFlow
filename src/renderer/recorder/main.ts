@@ -6,7 +6,10 @@ import type {
   DictationBeginPayload,
   DictationCaptureErrorPayload,
   DictationSessionPayload,
-  RecorderStatusPayload
+  MicrophoneDevice,
+  RecorderSetDevicePayload,
+  RecorderStatusPayload,
+  RecorderTestMonitorPayload
 } from '../../shared/ipc'
 
 /** 100 ms at 16 kHz: small enough for a snappy stop, large enough to keep IPC quiet. */
@@ -56,6 +59,12 @@ let activeMaxDurationMs = RECORDER_MAX_UTTERANCE_MS
 let chunks: Int16Array[] = []
 let frameCount = 0
 let levelTimer: number | null = null
+let preferredDeviceId: string | null = null
+let configurationPromise: Promise<void> | null = null
+let deviceChangePending = false
+let pipelineRestartPromise: Promise<void> | null = null
+let testMonitorEnabled = false
+let testMonitorTimer: number | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -112,8 +121,11 @@ function describeCaptureError(error: unknown): { code: CaptureErrorCode; message
         }
       case 'OverconstrainedError':
         return {
-          code: 'capture-failed',
-          message: 'The microphone does not support the audio format Murmur needs.'
+          code: 'no-device',
+          message:
+            preferredDeviceId === null
+              ? 'The microphone does not support the audio format Murmur needs.'
+              : 'The selected microphone is unavailable. Choose another microphone in Settings.'
         }
       default:
         return {
@@ -143,6 +155,50 @@ function reportCaptureError(sessionId: string, error: unknown): void {
 
 function reportStatus(status: RecorderStatusPayload): void {
   window.murmurRecorder.reportStatus(status)
+}
+
+async function loadConfiguration(): Promise<void> {
+  try {
+    const config = await window.murmurRecorder.getConfig()
+    preferredDeviceId = config.microphoneId
+    console.log(
+      `[murmur recorder] microphone: ${preferredDeviceId === null ? 'system default' : preferredDeviceId}`
+    )
+  } catch (error) {
+    console.error('[murmur recorder] could not read the recorder configuration', error)
+  }
+}
+
+function ensureConfiguration(): Promise<void> {
+  configurationPromise ??= loadConfiguration()
+  return configurationPromise
+}
+
+async function reportDeviceList(): Promise<void> {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    const microphones: MicrophoneDevice[] = []
+    const seen = new Set<string>()
+
+    for (const device of devices) {
+      if (device.kind !== 'audioinput' || device.deviceId === '' || seen.has(device.deviceId)) {
+        continue
+      }
+      seen.add(device.deviceId)
+      const label = device.label.trim()
+      microphones.push({
+        deviceId: device.deviceId,
+        label: label === '' ? `Microphone ${microphones.length + 1}` : label
+      })
+      if (microphones.length >= 64) {
+        break
+      }
+    }
+
+    window.murmurRecorder.reportDevices({ devices: microphones })
+  } catch (error) {
+    console.error('[murmur recorder] could not list microphones', error)
+  }
 }
 
 /**
@@ -201,6 +257,32 @@ function startLevelMonitor(sessionId: string): void {
   levelTimer = window.setInterval(sendSample, LEVEL_INTERVAL_MS)
 }
 
+function stopTestMonitor(): void {
+  if (testMonitorTimer !== null) {
+    window.clearInterval(testMonitorTimer)
+    testMonitorTimer = null
+  }
+}
+
+function startTestMonitor(): void {
+  stopTestMonitor()
+
+  const sendSample = (): void => {
+    if (!testMonitorEnabled) {
+      stopTestMonitor()
+      return
+    }
+
+    const active = pipeline
+    window.murmurRecorder.sendMonitorLevel({
+      level: active === null ? 0 : readLevel(active.analyser)
+    })
+  }
+
+  sendSample()
+  testMonitorTimer = window.setInterval(sendSample, LEVEL_INTERVAL_MS)
+}
+
 function disposePipeline(target: CapturePipeline): void {
   stopLevelMonitor()
   target.node.port.onmessage = null
@@ -213,6 +295,11 @@ function disposePipeline(target: CapturePipeline): void {
 }
 
 async function createPipeline(): Promise<CapturePipeline> {
+  // The settings store decides which device to warm. Reading it here (rather
+  // than only at module start) also covers a window that finished loading
+  // after the user changed the microphone.
+  await ensureConfiguration()
+
   const context = new AudioContext({
     sampleRate: RECORDER_SAMPLE_RATE,
     latencyHint: 'interactive'
@@ -248,13 +335,16 @@ async function createPipeline(): Promise<CapturePipeline> {
     // Windows: echo cancellation adds processing delay and can alter the voice
     // signal. Murmur never plays audio through the mic graph, so it is disabled.
     // The AudioWorkletNode below is forced to one channel, which downmixes a
-    // stereo device to mono.
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: false
-      }
-    })
+    // stereo device to mono. An exact device id honours the settings dropdown;
+    // `null` leaves the choice to Windows.
+    const audio: MediaTrackConstraints = {
+      channelCount: 1,
+      echoCancellation: false
+    }
+    if (preferredDeviceId !== null) {
+      audio.deviceId = { exact: preferredDeviceId }
+    }
+    stream = await navigator.mediaDevices.getUserMedia({ audio })
 
     if (stream.getAudioTracks().length === 0) {
       throw new CaptureSetupError('no-device', 'The microphone did not provide an audio track.')
@@ -330,6 +420,92 @@ async function ensurePipeline(): Promise<CapturePipeline> {
   }
 }
 
+async function restartPipeline(): Promise<void> {
+  if (pipelineRestartPromise !== null) {
+    return pipelineRestartPromise
+  }
+
+  pipelineRestartPromise = (async (): Promise<void> => {
+    const pending = pipelinePromise
+    if (pending !== null) {
+      await pending.catch(() => undefined)
+    }
+
+    const previous = pipeline
+    pipeline = null
+    pipelinePromise = null
+    if (previous !== null) {
+      disposePipeline(previous)
+    }
+
+    try {
+      await ensurePipeline()
+      reportStatus({ microphone: 'ready' })
+    } catch (error) {
+      const description = describeCaptureError(error)
+      console.error('[murmur recorder] could not switch microphone', error)
+      reportStatus({ microphone: 'unavailable', message: description.message })
+    }
+  })()
+
+  try {
+    await pipelineRestartPromise
+  } finally {
+    pipelineRestartPromise = null
+  }
+}
+
+async function applyPendingDevice(): Promise<void> {
+  if (!deviceChangePending) {
+    return
+  }
+  deviceChangePending = false
+  await restartPipeline()
+}
+
+function handleSetDevice(payload: RecorderSetDevicePayload): void {
+  if (payload.deviceId === preferredDeviceId) {
+    return
+  }
+
+  preferredDeviceId = payload.deviceId
+  console.log(
+    `[murmur recorder] microphone changed to ${preferredDeviceId === null ? 'system default' : preferredDeviceId}`
+  )
+
+  if (activeSessionId !== null) {
+    // Never tear down a pipeline while its audio is being captured. The new
+    // device is opened before the next utterance instead.
+    deviceChangePending = true
+    console.log('[murmur recorder] microphone change deferred until the utterance ends')
+    return
+  }
+
+  void restartPipeline()
+}
+
+function handleTestMonitor(payload: RecorderTestMonitorPayload): void {
+  testMonitorEnabled = payload.enabled
+  if (!payload.enabled) {
+    stopTestMonitor()
+    return
+  }
+
+  startTestMonitor()
+  // Retry a failed warm-up so the Test button also recovers from a device that
+  // was unavailable when Murmur started.
+  void ensurePipeline()
+    .then(() => {
+      reportStatus({ microphone: 'ready' })
+      void reportDeviceList()
+    })
+    .catch((error: unknown) => {
+      const description = describeCaptureError(error)
+      console.error('[murmur recorder] microphone test could not open the device', error)
+      reportStatus({ microphone: 'unavailable', message: description.message })
+    })
+}
+
 function handleTrackEnded(): void {
   console.error('[murmur recorder] the microphone track ended')
   stopLevelMonitor()
@@ -380,6 +556,7 @@ function handleBegin(payload: DictationBeginPayload): void {
 
 async function startCapture(sessionId: string): Promise<void> {
   try {
+    await applyPendingDevice()
     const active = await ensurePipeline()
     if (activeSessionId !== sessionId) {
       return
@@ -437,6 +614,7 @@ function handleCancel(payload: DictationSessionPayload): void {
   chunks = []
   frameCount = 0
   pipeline?.node.port.postMessage({ type: 'cancel' })
+  void applyPendingDevice()
 }
 
 function handleWorkletMessage(event: MessageEvent<unknown>): void {
@@ -478,6 +656,7 @@ function handleWorkletMessage(event: MessageEvent<unknown>): void {
       code: 'no-audio',
       message: 'No audio was captured. Check the microphone and Windows privacy settings.'
     })
+    void applyPendingDevice()
     return
   }
 
@@ -490,21 +669,33 @@ function handleWorkletMessage(event: MessageEvent<unknown>): void {
       event.data.capReached ? ' (limit reached)' : ''
     }`
   )
+  void applyPendingDevice()
 }
 
 async function warmUpMicrophone(): Promise<void> {
   try {
+    await ensureConfiguration()
     await ensurePipeline()
     reportStatus({ microphone: 'ready' })
+    void reportDeviceList()
   } catch (error) {
     const description = describeCaptureError(error)
     console.error('[murmur recorder] microphone unavailable at startup', error)
     reportStatus({ microphone: 'unavailable', message: description.message })
+    void reportDeviceList()
   }
 }
 
 window.murmurRecorder.onBegin(handleBegin)
 window.murmurRecorder.onFinish(handleFinish)
 window.murmurRecorder.onCancel(handleCancel)
+window.murmurRecorder.onSetDevice(handleSetDevice)
+window.murmurRecorder.onTestMonitor(handleTestMonitor)
+window.murmurRecorder.onRequestDevices(() => {
+  void reportDeviceList()
+})
+navigator.mediaDevices.addEventListener('devicechange', () => {
+  void reportDeviceList()
+})
 
 void warmUpMicrophone()

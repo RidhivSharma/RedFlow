@@ -3,9 +3,15 @@ import {
   IPC_CHANNELS,
   isDictationBeginPayload,
   isDictationSessionPayload,
+  isMicLevelPayload,
+  isRecorderSetDevicePayload,
+  isRecorderTestMonitorPayload,
   type DictationBeginPayload,
   type DictationSessionPayload,
-  type RecorderBridge
+  type RecorderBridge,
+  type RecorderConfigPayload,
+  type RecorderSetDevicePayload,
+  type RecorderTestMonitorPayload
 } from '../shared/ipc'
 
 type PayloadGuard<T> = (value: unknown) => value is T
@@ -32,11 +38,30 @@ const murmurRecorder: RecorderBridge = {
   onCancel: (handler: (payload: DictationSessionPayload) => void): void => {
     subscribe(IPC_CHANNELS.dictationCancel, isDictationSessionPayload, handler)
   },
+  onSetDevice: (handler: (payload: RecorderSetDevicePayload) => void): void => {
+    subscribe(IPC_CHANNELS.recorderSetDevice, isRecorderSetDevicePayload, handler)
+  },
+  onTestMonitor: (handler: (payload: RecorderTestMonitorPayload) => void): void => {
+    subscribe(IPC_CHANNELS.recorderTestMonitor, isRecorderTestMonitorPayload, handler)
+  },
+  onRequestDevices: (handler: () => void): void => {
+    ipcRenderer.on(IPC_CHANNELS.recorderListDevices, () => handler())
+  },
+  getConfig: (): Promise<RecorderConfigPayload> =>
+    ipcRenderer.invoke(IPC_CHANNELS.recorderGetConfig) as Promise<RecorderConfigPayload>,
   sendAudio: (payload): void => {
     ipcRenderer.send(IPC_CHANNELS.dictationAudio, payload)
   },
   sendLevel: (payload): void => {
     ipcRenderer.send(IPC_CHANNELS.dictationLevel, payload)
+  },
+  sendMonitorLevel: (payload): void => {
+    if (isMicLevelPayload(payload)) {
+      ipcRenderer.send(IPC_CHANNELS.recorderMonitorLevel, payload)
+    }
+  },
+  reportDevices: (payload): void => {
+    ipcRenderer.send(IPC_CHANNELS.recorderDevices, payload)
   },
   reportCaptureError: (payload): void => {
     ipcRenderer.send(IPC_CHANNELS.dictationCaptureError, payload)
