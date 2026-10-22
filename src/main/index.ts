@@ -50,7 +50,9 @@ async function startApp(): Promise<void> {
   const preferences = await loadStartupPreferences()
   const dictation = createDictationController({
     minUtteranceMs: preferences.minUtteranceMs,
-    maxUtteranceMs: preferences.maxUtteranceMs
+    maxUtteranceMs: preferences.maxUtteranceMs,
+    modelPath: preferences.modelPath,
+    threads: preferences.threads
   })
   activeDictation = dictation
 
@@ -92,11 +94,36 @@ function bootstrap(): void {
     // Intentionally empty.
   })
 
-  app.on('before-quit', () => {
+  let shuttingDown = false
+  let cleanupComplete = false
+  app.on('before-quit', (event) => {
+    if (cleanupComplete) {
+      return
+    }
+
+    // Wait for whisper to be killed and its WAV snapshot removed before the
+    // process exits. A repeated quit request must not bypass the cleanup.
+    event.preventDefault()
+    if (shuttingDown) {
+      return
+    }
+
+    shuttingDown = true
     stopHotkeyListener()
-    activeDictation?.dispose()
+    const dictation = activeDictation
     activeDictation = null
-    destroyTray()
+
+    void (async () => {
+      try {
+        await dictation?.dispose()
+      } catch (error) {
+        console.error('[murmur] shutdown cleanup failed', error)
+      } finally {
+        destroyTray()
+        cleanupComplete = true
+        app.quit()
+      }
+    })()
   })
 
   void app

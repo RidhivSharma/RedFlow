@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import { setTrayTooltip } from './app/tray'
 import { createRecorderController, type RecorderFailure, type UtteranceSaved } from './recorder'
+import { createTranscriber } from './transcriber'
 
 export type DictationState = 'idle' | 'recording' | 'finalizing'
 
@@ -10,6 +11,10 @@ export interface DictationControllerOptions {
   readonly minUtteranceMs: number
   /** Hard upper bound for one utterance; the recorder also enforces its own cap. */
   readonly maxUtteranceMs: number
+  /** A path from settings.json, or `null` for the bundled base.en model. */
+  readonly modelPath: string | null
+  /** Whisper thread count; `0` means auto. */
+  readonly threads: number
 }
 
 export interface DictationController {
@@ -17,7 +22,8 @@ export interface DictationController {
   readonly initialize: () => Promise<void>
   readonly start: () => void
   readonly stop: (durationMs: number) => void
-  readonly dispose: () => void
+  /** Stops capture and transcription; resolves after temp files are cleaned. */
+  readonly dispose: () => Promise<void>
 }
 
 function toTooltip(message: string): string {
@@ -26,9 +32,9 @@ function toTooltip(message: string): string {
 }
 
 /**
- * Owns "what is happening right now" (docs/ARCHITECTURE.md §5) and drives the
- * hidden recorder. Phase 3 ends at a validated `%TEMP%\murmur\last.wav`;
- * transcription and insertion attach to the same states in later phases.
+ * Owns "what is happening right now" (docs/ARCHITECTURE.md §5), drives the
+ * hidden recorder, and queues each saved utterance for whisper. Phase 4 logs
+ * the transcript; phase 5 will insert it at the cursor.
  */
 export function createDictationController(
   options: DictationControllerOptions
@@ -36,9 +42,15 @@ export function createDictationController(
   const minUtteranceMs = Math.max(0, options.minUtteranceMs)
   const maxUtteranceMs = Math.min(Math.max(options.maxUtteranceMs, 1), RECORDER_MAX_UTTERANCE_MS)
 
+  const transcriber = createTranscriber({
+    modelPath: options.modelPath,
+    threads: options.threads
+  })
+
   let state: DictationState = 'idle'
   let sessionId: string | null = null
   let holdTimer: NodeJS.Timeout | null = null
+  let pendingTranscriptions = 0
 
   function clearHoldTimer(): void {
     if (holdTimer !== null) {
@@ -52,6 +64,28 @@ export function createDictationController(
     clearHoldTimer()
   }
 
+  async function transcribeUtterance(result: UtteranceSaved): Promise<void> {
+    try {
+      const transcription = await transcriber.transcribe(result.filePath)
+      console.log(
+        `[murmur] transcript (${Math.round(transcription.elapsedMs)} ms): ${transcription.text}`
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Transcription failed.'
+      console.error(`[murmur] transcription failed: ${message}`, error)
+      if (state === 'idle') {
+        setTrayTooltip(toTooltip(message))
+      }
+      return
+    } finally {
+      pendingTranscriptions = Math.max(0, pendingTranscriptions - 1)
+    }
+
+    if (pendingTranscriptions === 0 && state === 'idle') {
+      setTrayTooltip('Idle')
+    }
+  }
+
   function handleUtteranceSaved(result: UtteranceSaved): void {
     if (result.sessionId !== sessionId) {
       return
@@ -59,8 +93,10 @@ export function createDictationController(
 
     clearSession()
     state = 'idle'
-    setTrayTooltip('Idle')
+    pendingTranscriptions += 1
+    setTrayTooltip('Transcribing...')
     console.log(`[murmur] utterance ready (${Math.round(result.durationMs)} ms)`)
+    void transcribeUtterance(result)
   }
 
   function handleRecorderError(failure: RecorderFailure): void {
@@ -148,10 +184,11 @@ export function createDictationController(
     await recorder.initialize()
   }
 
-  function dispose(): void {
+  async function dispose(): Promise<void> {
     clearSession()
     state = 'idle'
     recorder.dispose()
+    await transcriber.dispose()
   }
 
   return {

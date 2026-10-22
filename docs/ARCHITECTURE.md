@@ -57,7 +57,7 @@ One Node process. Responsibilities and where they live:
 | Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. |
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
 | Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. |
-| Transcriber | `src/main/transcriber.ts` | Phase 4: snapshots the latest WAV to a unique file, spawns `whisper-cli.exe`, parses stdout, kills on timeout, cleans up in `finally`. Strictly one process at a time; new utterances queue FIFO so insertion order matches speaking order. |
+| Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts` | `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l en -nt -np -t`, parses and cleans stdout, kills after 60 s, and cleans up in `finally`. |
 | Paster | `src/main/paster.ts` | Clipboard save/set/restore + Ctrl+V simulation. Sequencing rules in section 7. |
 | Settings | `src/main/settings.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). Schema in section 8. |
 | Windows | `src/main/windows/*.ts` | Factories for the three windows (section 3). |
@@ -148,7 +148,7 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 | `pasting` | phase 5: valid text ready | `idle` (pasted & clipboard restored, or error shown) |
 | `error` | any failure (message shown in overlay) | `idle` (next keypress) |
 
-Phase 3 stops at `finalizing → idle`; phase 4 inserts `transcribing`/`pasting` after the WAV is saved. A new keypress during `finalizing` is currently ignored — the disk write is milliseconds — and the phase-8 FIFO work will allow the next recording to proceed in parallel while earlier utterances transcribe.
+Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue runs in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately and keeps the FIFO ordered by utterance. The visible `transcribing`/`pasting` states (and their overlay feedback) arrive with phases 5 and 6. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
 
 Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle`, sends `dictation:cancel`, and produces no WAV or error.
 
@@ -164,10 +164,10 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer.
 5. The user releases the key → uiohook keyup → main sends `dictation:finish` (or the max-hold timer sends it first).
 6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
-7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. Phase 4 snapshots that file to a per-session path (so a following utterance cannot overwrite it) and spawns: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
-8. Main reads stdout: plain-text lines (timestamps suppressed via `-nt`), joined with single spaces and trimmed. Timeout ≈ 10 s + 4× clip duration; `whisper-cli.exe` is killed and its snapshot deleted if it overruns. Non-zero exit → error path.
-9. Non-empty text → state `pasting` (section 7). Empty text → "nothing heard" state; the window is returned to `idle` quietly.
-10. After paste + clipboard restore, the per-session WAV snapshot is deleted (`finally` — deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
+7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
+8. Main reads stdout: diagnostic lines and timestamps are stripped, remaining plain-text lines are joined with single spaces, and the result is trimmed. Each run gets a 60 s timeout; `whisper-cli.exe` is killed on overrun. Non-zero exit → error path with whisper's stderr detail.
+9. Non-empty text is returned to the dictation controller. Phase 4 logs the text and elapsed time; phase 5 will move to `pasting` (section 7). Empty text → "No speech was recognized" in the tray/log until the overlay exists.
+10. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
 11. If the user spoke again meanwhile, the queue processes the next `sessionId`.
 12. Overlay flashes a brief confirmation (optional, open decision) and hides; state `idle`.
 
@@ -235,7 +235,9 @@ The primary key down starts dictation only when every listed modifier is held. D
 | Settings JSON | `%APPDATA%\Murmur\settings.json` | same |
 | Temp WAVs | `%TEMP%\murmur\last.wav` (latest utterance, kept for inspection) | same |
 
-A single path helper (`getBundledResource('models/ggml-base.en.bin')` style) tests `app.isPackaged` so dev and installed behavior stay aligned; nothing hardcodes a drive or repo path.
+`whisper-cli.exe` needs its DLLs beside it. The whisper.cpp release zip keeps them in a `Release/` folder; its contents are flattened into `resources/whisper/` so dev and packaged layouts match.
+
+A single path helper (`getResourcePath(...)` in `src/main/app/paths.ts`) tests `app.isPackaged` so dev and installed behavior stay aligned; nothing hardcodes a drive or repo path.
 
 The exact installed path (per-user install is the default) is confirmed when the installer config is built in phase 9.
 
@@ -251,7 +253,7 @@ The exact installed path (per-user install is the default) is confirmed when the
 6. **DPI** — the overlay must position correctly on multi-monitor, mixed-scale setups.
 7. **Hidden window throttling** — `backgroundThrottling: false` or audio capture stalls; `autoplayPolicy: 'no-user-gesture-required'` or the hidden `AudioContext` stays suspended.
 8. **AudioContext rate** — a 16 kHz context is supported on Windows, but if Chromium ever ignores the request the worklet would record at the wrong rate. `createPipeline` checks `context.sampleRate` and fails with a clear error instead of writing a mislabelled WAV.
-9. **Tray-only lifecycle** — `window-all-closed` must **not** quit; only the tray Quit does. Also relevant: `before-quit` must stop hooks, mic, and whisper cleanly.
+9. **Tray-only lifecycle** — `window-all-closed` must **not** quit; only the tray Quit does. `before-quit` prevents the immediate exit, stops the hook, and awaits `dictation.dispose()` (recorder teardown, whisper cancellation, snapshot cleanup) before quitting for real.
 10. **AV/SmartScreen** — hooks + clipboard + unsigned installer is a heuristic trifecta; expected, handled in phases 9/10.
 11. **Per-user install default** — no admin rights needed; avoids most corporate and permission pitfalls.
 

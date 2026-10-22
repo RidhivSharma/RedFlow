@@ -56,7 +56,8 @@ RedFlow/
 │  │  ├─ hotkey.ts              ← uiohook-napi glue (watch keys, tap Ctrl+V)
 │  │  ├─ dictation.ts           ← utterance state machine
 │  │  ├─ recorder.ts            ← capture session + temp WAV writer
-│  │  ├─ transcriber.ts         ← whisper-cli runner + FIFO queue
+│  │  ├─ transcriber.ts         ← WAV snapshots + FIFO transcription queue
+│  │  ├─ whisperRunner.ts       ← one whisper-cli spawn + stdout parsing
 │  │  ├─ paster.ts              ← clipboard save/set/restore + Ctrl+V
 │  │  ├─ settings.ts            ← JSON store in userData
 │  │  └─ windows/               ← recorder / overlay / settings window setup
@@ -92,7 +93,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 1 | Scaffold + tray | ◐ in progress |
 | 2 | Global hotkey | ✓ done |
 | 3 | Recording (mic → WAV) | ✓ done |
-| 4 | Whisper transcription | ☐ not started |
+| 4 | Whisper transcription | ✓ done |
 | 5 | Text insertion | ☐ not started |
 | 6 | Overlay UI | ☐ not started |
 | 7 | Settings window + JSON store | ☐ not started |
@@ -134,12 +135,14 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 3 status: **done and verified on Windows.** Dev and production builds both warmed the microphone at 16000 Hz. A 1.6 s hold produced `%TEMP%\murmur\last.wav` (51,244 bytes = 44-byte header + 51,200 bytes PCM) with non-zero audio, and Windows `SoundPlayer` loaded it. A 159 ms tap was discarded without touching the file. With `maxUtteranceMs` temporarily set to 3000 ms, a 5 s hold auto-finished at 3 s with a 3,000 ms WAV and ignored the later key-up. Denying the `media` permission produced the Windows privacy guidance instead of a silent failure. Preload bundles are now standalone (`isolatedEntries`), which also fixes the production-only preload chunk failure.
 
 ### Phase 4 — Whisper transcription
-- [ ] `whisper-cli.exe` + `ggml-base.en.bin` fetched into `resources/` (download doc added; not committed).
-- [ ] Runner spawns one whisper-cli per utterance (`-m … -f … -l en -nt -np -t <threads>`), captures stdout, parses plain text, trims it.
-- [ ] Timeouts: process killed (with temp cleanup) if it runs past a duration-based limit; non-zero exit treated as failure.
-- [ ] FIFO queue: overlapping rapid utterances transcribe in order, one whisper process at a time.
-- [ ] Empty or failed transcription → error state, nothing inserted.
+- [x] `whisper-cli.exe` + `ggml-base.en.bin` fetched into `resources/` (download doc added; not committed).
+- [x] Runner spawns one whisper-cli per utterance (`-m … -f … -l en -nt -np -t <threads>`), captures stdout, parses plain text, trims it.
+- [x] Timeout: process killed (with temp cleanup) after 60 s; non-zero exit treated as failure. Verified with a fake hanging whisper-cli: killed at 60.0 s, friendly timeout error, snapshot removed, no process left running.
+- [x] FIFO queue: overlapping rapid utterances transcribe in order, one whisper process at a time. Verified with two simultaneous calls against `last.wav`.
+- [x] Empty or failed transcription → error state, nothing inserted. Automated paths verified (empty stdout, exit code 3, missing exe/model), and a live missing-model run showed the friendly terminal error plus tray tooltip; nothing was inserted.
 - **Done when:** a typical 3–5 s utterance returns sensible English text in ~1–3 s on the dev machine.
+
+> Phase 4 status: **done and verified on Windows.** Live F9 hold→speak→release returned sensible English text in the terminal. Two rapid live utterances transcribed in order, and a missing model produced the expected terminal error and tray tooltip without inserting text. The 60 s timeout, empty stdout, non-zero exit, missing exe/model, FIFO ordering, and temp cleanup were also verified through the compiled modules; no snapshots or `whisper-cli.exe` processes were left behind. `dispose()` awaits the queue and `before-quit` delays app exit until cleanup finishes, so tray Quit during transcription is clean. Phase 5 (text insertion) has not been started.
 
 ### Phase 5 — Text insertion
 - [ ] Sequence implemented in `paster.ts`: save clipboard text → `clipboard.writeText(text)` → simulate Ctrl+V via uiohook → restore saved text after a delay.

@@ -69,6 +69,8 @@ export interface StartupPreferences {
   readonly hotkey: HotkeyPreferences
   readonly minUtteranceMs: number
   readonly maxUtteranceMs: number
+  readonly modelPath: string | null
+  readonly threads: number
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +90,9 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
       modifiers: DEFAULT_HOTKEY_BINDING.modifiers
     },
     minUtteranceMs: DEFAULT_SETTINGS.minUtteranceMs,
-    maxUtteranceMs: DEFAULT_SETTINGS.maxUtteranceMs
+    maxUtteranceMs: DEFAULT_SETTINGS.maxUtteranceMs,
+    modelPath: DEFAULT_SETTINGS.modelPath,
+    threads: DEFAULT_SETTINGS.threads
   }
 
   try {
@@ -104,6 +108,8 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
     const rawModifiers = parsed['hotkeyModifiers']
     const rawMinUtteranceMs = parsed['minUtteranceMs']
     const rawMaxUtteranceMs = parsed['maxUtteranceMs']
+    const rawModelPath = parsed['modelPath']
+    const rawThreads = parsed['threads']
     const key =
       typeof rawKey === 'string' && rawKey.trim() !== '' ? rawKey.trim() : fallback.hotkey.key
     const minUtteranceMs =
@@ -128,7 +134,13 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
           : fallback.hotkey.modifiers
       },
       minUtteranceMs,
-      maxUtteranceMs
+      maxUtteranceMs,
+      modelPath:
+        typeof rawModelPath === 'string' && rawModelPath.trim() !== '' ? rawModelPath.trim() : null,
+      threads:
+        typeof rawThreads === 'number' && Number.isFinite(rawThreads) && rawThreads >= 0
+          ? Math.floor(rawThreads)
+          : fallback.threads
     }
   } catch (error) {
     console.error('[murmur] could not read settings; using defaults', error)
