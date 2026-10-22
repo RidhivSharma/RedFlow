@@ -58,7 +58,7 @@ RedFlow/
 │  │  ├─ recorder.ts            ← capture session + temp WAV writer
 │  │  ├─ transcriber.ts         ← WAV snapshots + FIFO transcription queue
 │  │  ├─ whisperRunner.ts       ← one whisper-cli spawn + stdout parsing
-│  │  ├─ paster.ts              ← clipboard save/set/restore + Ctrl+V
+│  │  ├─ inserter.ts            ← clipboard save/set/restore + Ctrl+V
 │  │  ├─ settings.ts            ← JSON store in userData
 │  │  └─ windows/               ← recorder / overlay / settings window setup
 │  ├─ preload/                  ← contextBridge scripts (tiny, typed)
@@ -94,7 +94,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 2 | Global hotkey | ✓ done |
 | 3 | Recording (mic → WAV) | ✓ done |
 | 4 | Whisper transcription | ✓ done |
-| 5 | Text insertion | ☐ not started |
+| 5 | Text insertion | ✓ done |
 | 6 | Overlay UI | ☐ not started |
 | 7 | Settings window + JSON store | ☐ not started |
 | 8 | Quality & reliability | ☐ not started |
@@ -142,13 +142,15 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 - [x] Empty or failed transcription → error state, nothing inserted. Automated paths verified (empty stdout, exit code 3, missing exe/model), and a live missing-model run showed the friendly terminal error plus tray tooltip; nothing was inserted.
 - **Done when:** a typical 3–5 s utterance returns sensible English text in ~1–3 s on the dev machine.
 
-> Phase 4 status: **done and verified on Windows.** Live F9 hold→speak→release returned sensible English text in the terminal. Two rapid live utterances transcribed in order, and a missing model produced the expected terminal error and tray tooltip without inserting text. The 60 s timeout, empty stdout, non-zero exit, missing exe/model, FIFO ordering, and temp cleanup were also verified through the compiled modules; no snapshots or `whisper-cli.exe` processes were left behind. `dispose()` awaits the queue and `before-quit` delays app exit until cleanup finishes, so tray Quit during transcription is clean. Phase 5 (text insertion) has not been started.
+> Phase 4 status: **done and verified on Windows.** Live F9 hold→speak→release returned sensible English text in the terminal. Two rapid live utterances transcribed in order, and a missing model produced the expected terminal error and tray tooltip without inserting text. The 60 s timeout, empty stdout, non-zero exit, missing exe/model, FIFO ordering, and temp cleanup were also verified through the compiled modules; no snapshots or `whisper-cli.exe` processes were left behind. `dispose()` awaits the queue and `before-quit` delays app exit until cleanup finishes, so tray Quit during transcription is clean. Phase 5 (text insertion) is done and verified; see below.
 
 ### Phase 5 — Text insertion
-- [ ] Sequence implemented in `paster.ts`: save clipboard text → `clipboard.writeText(text)` → simulate Ctrl+V via uiohook → restore saved text after a delay.
-- [ ] Works in Notepad, VS Code, a Chrome text field, and Word — including multi-line text (Ctrl+V, not synthetic typing).
-- [ ] Our own windows never receive the paste (overlay is non-focusable; state guard when the settings window is focused).
+- [x] Sequence implemented in `inserter.ts`: save clipboard text → `clipboard.writeText(text)` → simulate Ctrl+V via uiohook → restore saved text after a delay.
+- [x] Works in Notepad, VS Code, a Chrome text field, and Word — including multi-line text (Ctrl+V, not synthetic typing).
+- [x] Our own windows never receive the paste (overlay is non-focusable; state guard when the settings window is focused).
 - **Done when:** dictating into each of the four test apps inserts the right text at the cursor, with the original clipboard content back afterwards.
+
+> Phase 5 status: **done and verified on Windows.** Live dictation inserted text at the caret in Notepad, VS Code, a Chrome text field, and Word, and the original clipboard text returned afterwards. The insertion path uses Ctrl+V, so multi-line text is preserved rather than synthesized keystroke-by-keystroke. Focusing the settings window made Murmur refuse to paste into itself. The `Ctrl+Space` modifier wait was verified with the compiled `hotkey.ts` and `inserter.ts` under Electron using simulated uiohook events (13/13 checks): while Ctrl stayed held, no Ctrl+V was sent and the clipboard was untouched; after Ctrl keyup, exactly one Ctrl+V was sent, the transcript was on the clipboard during the restore delay, and the previous clipboard was restored. The held-modifier timeout aborted with `modifiers-held` without pasting, and an unmodified binding resolved immediately. `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build` pass.
 
 ### Phase 6 — Overlay UI
 - [ ] Frameless, transparent, always-on-top window; `skipTaskbar`, never focusable (`showInactive`), click-through when idle (`setIgnoreMouseEvents`).

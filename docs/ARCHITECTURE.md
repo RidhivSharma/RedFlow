@@ -58,7 +58,7 @@ One Node process. Responsibilities and where they live:
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
 | Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. |
 | Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts` | `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l en -nt -np -t`, parses and cleans stdout, kills after 60 s, and cleans up in `finally`. |
-| Paster | `src/main/paster.ts` | Clipboard save/set/restore + Ctrl+V simulation. Sequencing rules in section 7. |
+| Inserter | `src/main/inserter.ts` | Serialized clipboard save/set/restore + Ctrl+V simulation via uiohook. Waits for hotkey modifiers to be released and refuses to paste into Murmur's own windows. Sequencing rules in section 7. |
 | Settings | `src/main/settings.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). Schema in section 8. |
 | Windows | `src/main/windows/*.ts` | Factories for the three windows (section 3). |
 | Permissions | `src/main/app/permissions.ts` | Session handlers allow `media` only for the hidden recorder window, audio only. Every other window and permission is denied. |
@@ -148,7 +148,7 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 | `pasting` | phase 5: valid text ready | `idle` (pasted & clipboard restored, or error shown) |
 | `error` | any failure (message shown in overlay) | `idle` (next keypress) |
 
-Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue runs in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately and keeps the FIFO ordered by utterance. The visible `transcribing`/`pasting` states (and their overlay feedback) arrive with phases 5 and 6. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
+Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue and the phase-5 insertion queue both run in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately while transcriptions and insertions stay FIFO-ordered by utterance. The visible `transcribing`/`pasting` states (and their overlay feedback) arrive with phase 6. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
 
 Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle`, sends `dictation:cancel`, and produces no WAV or error.
 
@@ -166,23 +166,28 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
 7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
 8. Main reads stdout: diagnostic lines and timestamps are stripped, remaining plain-text lines are joined with single spaces, and the result is trimmed. Each run gets a 60 s timeout; `whisper-cli.exe` is killed on overrun. Non-zero exit → error path with whisper's stderr detail.
-9. Non-empty text is returned to the dictation controller. Phase 4 logs the text and elapsed time; phase 5 will move to `pasting` (section 7). Empty text → "No speech was recognized" in the tray/log until the overlay exists.
-10. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
-11. If the user spoke again meanwhile, the queue processes the next `sessionId`.
-12. Overlay flashes a brief confirmation (optional, open decision) and hides; state `idle`.
+9. Non-empty text is returned to the dictation controller, which queues it for the inserter (section 7). Empty text → "No speech was recognized" in the tray/log until the overlay exists.
+10. If the hotkey is a combo, insertion first waits until every required modifier is physically released. Then the inserter borrows the clipboard, sends a synthetic Ctrl+V, waits `pasteRestoreDelayMs`, and restores the previous clipboard text. Insertions are serialized, so rapid utterances cannot interleave their clipboard windows.
+11. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
+12. If the user spoke again meanwhile, the queue processes the next `sessionId`.
+13. Overlay flashes a brief confirmation (optional, open decision) and hides; state `idle`.
 
 Model note: `ggml-base.en.bin` (~142 MB, English-only base model) ships with the app under `resources/models/`. It is **never committed** to the repo; the build fetches it from the whisper.cpp releases and the README documents that step. English-only is intentional for the first release.
 
 ---
 
-## 7. Text insertion sequence (`paster.ts`)
+## 7. Text insertion sequence (`inserter.ts`)
 
 Why paste instead of synthetic typing? Because typed Unicode production from a hook is fragile (dead keys, layout differences, focus flicker), and Ctrl+V pastes multi-line text exactly.
 
-1. **Save:** `original = clipboard.readText()` (text only; see Limitations below).
-2. **Set:** `clipboard.writeText(transcribedText)` — Electron's clipboard API.
-3. **Tap:** uiohook-napi `keyTap(V, [Ctrl])` sends a synthetic Ctrl+V. The focused app — which is still the target app, since Murmur never steals focus — receives the paste and inserts our text at its caret.
-4. **Restore:** wait `pasteRestoreDelayMs` (default ~350 ms), then `clipboard.writeText(original)`.
+1. **Guard:** refuse to insert while any Murmur window has focus (the settings window today; the overlay will be non-focusable), and refuse empty text. Murmur never shows, focuses, or activates a window during insertion.
+2. **Wait for modifiers:** if the binding is a combo (`Ctrl+Space`), wait until every required modifier is physically released. Sending a synthetic Ctrl+V while the user still holds Ctrl would include that modifier, and the synthetic Ctrl-up would leave the target app believing Ctrl was released. The wait is bounded (5 s) so a missed keyup cannot block the queue forever.
+3. **Save:** `original = await clipboard.readText()` (text only; see Limitations below).
+4. **Set:** `await clipboard.writeText(transcribedText)` — Electron's promise-based clipboard API, so the text is committed before the keystroke.
+5. **Tap:** uiohook-napi `keyTap(UiohookKey.V, [UiohookKey.Ctrl])` sends a synthetic Ctrl+V. The focused app — which is still the target app, since Murmur never steals focus — receives the paste and inserts our text at its caret.
+6. **Restore:** wait `pasteRestoreDelayMs` (default 350 ms), then `await clipboard.writeText(original)`. Restore runs in a `finally`, including when the tap fails.
+
+Insertions go through a FIFO queue inside the inserter, so overlapping utterances cannot interleave their save/set/restore windows.
 
 Why the delay? Windows apps don't necessarily read the clipboard the instant the keystroke arrives — some (Word, Excel, RDP sessions) read it a moment *later*. Restoring too early means the target pastes the *old* clipboard right after we've restored it. The delay is the known race; whether to make it adaptive is an open decision (phase 8).
 

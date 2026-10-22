@@ -71,17 +71,23 @@ export interface StartupPreferences {
   readonly maxUtteranceMs: number
   readonly modelPath: string | null
   readonly threads: number
+  readonly pasteRestoreDelayMs: number
 }
+
+// Keep the user-controlled restore delay short enough that the clipboard is
+// never borrowed for an unreasonable amount of time.
+const MAX_PASTE_RESTORE_DELAY_MS = 5000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
- * Reads the startup fields the recorder and hotkey need before the full
- * validated settings store exists (phase 7): the hotkey binding, the minimum
- * hold duration, and the maximum utterance length. A missing, unreadable, or
- * corrupt file falls back to the defaults so the app still starts.
+ * Reads the startup fields the recorder, hotkey, and inserter need before the
+ * full validated settings store exists (phase 7): the hotkey binding, the
+ * minimum hold duration, the maximum utterance length, and the clipboard
+ * restore delay. A missing, unreadable, or corrupt file falls back to the
+ * defaults so the app still starts.
  */
 export async function loadStartupPreferences(): Promise<StartupPreferences> {
   const fallback: StartupPreferences = {
@@ -92,7 +98,8 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
     minUtteranceMs: DEFAULT_SETTINGS.minUtteranceMs,
     maxUtteranceMs: DEFAULT_SETTINGS.maxUtteranceMs,
     modelPath: DEFAULT_SETTINGS.modelPath,
-    threads: DEFAULT_SETTINGS.threads
+    threads: DEFAULT_SETTINGS.threads,
+    pasteRestoreDelayMs: DEFAULT_SETTINGS.pasteRestoreDelayMs
   }
 
   try {
@@ -110,6 +117,7 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
     const rawMaxUtteranceMs = parsed['maxUtteranceMs']
     const rawModelPath = parsed['modelPath']
     const rawThreads = parsed['threads']
+    const rawPasteRestoreDelayMs = parsed['pasteRestoreDelayMs']
     const key =
       typeof rawKey === 'string' && rawKey.trim() !== '' ? rawKey.trim() : fallback.hotkey.key
     const minUtteranceMs =
@@ -140,7 +148,13 @@ export async function loadStartupPreferences(): Promise<StartupPreferences> {
       threads:
         typeof rawThreads === 'number' && Number.isFinite(rawThreads) && rawThreads >= 0
           ? Math.floor(rawThreads)
-          : fallback.threads
+          : fallback.threads,
+      pasteRestoreDelayMs:
+        typeof rawPasteRestoreDelayMs === 'number' &&
+        Number.isFinite(rawPasteRestoreDelayMs) &&
+        rawPasteRestoreDelayMs >= 0
+          ? Math.min(Math.floor(rawPasteRestoreDelayMs), MAX_PASTE_RESTORE_DELAY_MS)
+          : fallback.pasteRestoreDelayMs
     }
   } catch (error) {
     console.error('[murmur] could not read settings; using defaults', error)

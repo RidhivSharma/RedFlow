@@ -21,7 +21,11 @@ interface ActiveHotkeyListener {
   readonly onKeyDown: (event: UiohookKeyboardEvent) => void
   readonly onKeyUp: (event: UiohookKeyboardEvent) => void
   readonly reset: () => void
+  readonly waitForModifiersReleased: (timeoutMs: number) => Promise<boolean>
 }
+
+/** How long insertion waits for a held hotkey modifier before giving up. */
+const MODIFIER_RELEASE_TIMEOUT_MS = 5000
 
 const MODIFIER_EVENT_FLAGS: Readonly<
   Record<HotkeyModifier, 'ctrlKey' | 'altKey' | 'shiftKey' | 'metaKey'>
@@ -74,10 +78,61 @@ export function startHotkeyListener(options: HotkeyListenerOptions): boolean {
   }
 
   const bindingText = formatHotkeyBinding(resolved.binding)
+  const heldModifiers = new Set<HotkeyModifier>()
   let pressed = false
   let pressedAtMs = 0
 
+  // The event flags reflect which modifiers are down right now, including a
+  // modifier that was already held before the hook started. Tracking the flags
+  // rather than raw keycodes also covers both left and right variants.
+  function syncHeldModifiers(event: UiohookKeyboardEvent): void {
+    for (const modifier of resolved.binding.modifiers) {
+      if (event[MODIFIER_EVENT_FLAGS[modifier]]) {
+        heldModifiers.add(modifier)
+      } else {
+        heldModifiers.delete(modifier)
+      }
+    }
+  }
+
+  function waitForModifiersReleased(timeoutMs: number): Promise<boolean> {
+    if (heldModifiers.size === 0) {
+      return Promise.resolve(true)
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false
+      let timer: NodeJS.Timeout | null = null
+
+      const finish = (released: boolean): void => {
+        if (settled) {
+          return
+        }
+        settled = true
+        if (timer !== null) {
+          clearTimeout(timer)
+        }
+        uIOhook.off('keyup', onWaitedKeyUp)
+        resolve(released)
+      }
+
+      const onWaitedKeyUp = (event: UiohookKeyboardEvent): void => {
+        syncHeldModifiers(event)
+        if (heldModifiers.size === 0) {
+          finish(true)
+        }
+      }
+
+      timer = setTimeout(() => finish(false), Math.max(0, timeoutMs))
+      // Registered after the listener's own onKeyUp, so the modifier state is
+      // already current when this runs.
+      uIOhook.on('keyup', onWaitedKeyUp)
+    })
+  }
+
   const onKeyDown = (event: UiohookKeyboardEvent): void => {
+    syncHeldModifiers(event)
+
     if (pressed || event.keycode !== resolved.keycode) {
       return
     }
@@ -95,6 +150,8 @@ export function startHotkeyListener(options: HotkeyListenerOptions): boolean {
   }
 
   const onKeyUp = (event: UiohookKeyboardEvent): void => {
+    syncHeldModifiers(event)
+
     if (!pressed) {
       return
     }
@@ -137,10 +194,32 @@ export function startHotkeyListener(options: HotkeyListenerOptions): boolean {
     reset: () => {
       pressed = false
       pressedAtMs = 0
-    }
+      heldModifiers.clear()
+    },
+    waitForModifiersReleased
   }
   console.log(`[murmur] global hotkey listener started (${bindingText})`)
   return true
+}
+
+/**
+ * Waits until every modifier required by the active push-to-talk binding is
+ * physically released. Resolves `false` after `timeoutMs` so a missed keyup
+ * cannot block the insertion queue forever. Resolves immediately for a bare
+ * key binding or when the listener is not running.
+ *
+ * The insertion sequence needs this: a synthetic Ctrl+V sent while the user
+ * still holds a combo's Ctrl would be followed by our synthetic Ctrl keyup,
+ * leaving the target app and the hook believing Ctrl was released.
+ */
+export function waitForHotkeyModifiersReleased(
+  timeoutMs: number = MODIFIER_RELEASE_TIMEOUT_MS
+): Promise<boolean> {
+  const listener = activeHotkey
+  if (listener === null) {
+    return Promise.resolve(true)
+  }
+  return listener.waitForModifiersReleased(timeoutMs)
 }
 
 /**

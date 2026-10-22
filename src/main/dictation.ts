@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import { setTrayTooltip } from './app/tray'
+import { waitForHotkeyModifiersReleased } from './hotkey'
+import { createInserter, InsertionError } from './inserter'
 import { createRecorderController, type RecorderFailure, type UtteranceSaved } from './recorder'
 import { createTranscriber } from './transcriber'
 
@@ -15,6 +17,8 @@ export interface DictationControllerOptions {
   readonly modelPath: string | null
   /** Whisper thread count; `0` means auto. */
   readonly threads: number
+  /** Delay before the borrowed clipboard is restored, from settings.json. */
+  readonly pasteRestoreDelayMs: number
 }
 
 export interface DictationController {
@@ -22,7 +26,7 @@ export interface DictationController {
   readonly initialize: () => Promise<void>
   readonly start: () => void
   readonly stop: (durationMs: number) => void
-  /** Stops capture and transcription; resolves after temp files are cleaned. */
+  /** Stops capture, transcription, and insertion; resolves after cleanup. */
   readonly dispose: () => Promise<void>
 }
 
@@ -33,8 +37,8 @@ function toTooltip(message: string): string {
 
 /**
  * Owns "what is happening right now" (docs/ARCHITECTURE.md §5), drives the
- * hidden recorder, and queues each saved utterance for whisper. Phase 4 logs
- * the transcript; phase 5 will insert it at the cursor.
+ * hidden recorder, queues each saved utterance for whisper, and passes the
+ * resulting text to the inserter so it lands at the focused app's cursor.
  */
 export function createDictationController(
   options: DictationControllerOptions
@@ -45,6 +49,11 @@ export function createDictationController(
   const transcriber = createTranscriber({
     modelPath: options.modelPath,
     threads: options.threads
+  })
+
+  const inserter = createInserter({
+    pasteRestoreDelayMs: options.pasteRestoreDelayMs,
+    waitForModifiersReleased: () => waitForHotkeyModifiersReleased()
   })
 
   let state: DictationState = 'idle'
@@ -70,9 +79,18 @@ export function createDictationController(
       console.log(
         `[murmur] transcript (${Math.round(transcription.elapsedMs)} ms): ${transcription.text}`
       )
+
+      if (state === 'idle') {
+        setTrayTooltip('Pasting...')
+      }
+      await inserter.insert(transcription.text)
+      console.log(
+        `[murmur] inserted transcript (${transcription.text.length} characters) into the focused app`
+      )
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Transcription failed.'
-      console.error(`[murmur] transcription failed: ${message}`, error)
+      const stage = error instanceof InsertionError ? 'insertion failed' : 'transcription failed'
+      const message = error instanceof Error ? error.message : 'Dictation failed.'
+      console.error(`[murmur] ${stage}: ${message}`, error)
       if (state === 'idle') {
         setTrayTooltip(toTooltip(message))
       }
@@ -188,7 +206,11 @@ export function createDictationController(
     clearSession()
     state = 'idle'
     recorder.dispose()
+    // Mark insertion as closed before whisper settles, so a transcript that
+    // arrives during shutdown cannot borrow the clipboard on the way out.
+    const insertionDone = inserter.dispose()
     await transcriber.dispose()
+    await insertionDone
   }
 
   return {

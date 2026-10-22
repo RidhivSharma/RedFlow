@@ -52,7 +52,8 @@ async function startApp(): Promise<void> {
     minUtteranceMs: preferences.minUtteranceMs,
     maxUtteranceMs: preferences.maxUtteranceMs,
     modelPath: preferences.modelPath,
-    threads: preferences.threads
+    threads: preferences.threads,
+    pasteRestoreDelayMs: preferences.pasteRestoreDelayMs
   })
   activeDictation = dictation
 
