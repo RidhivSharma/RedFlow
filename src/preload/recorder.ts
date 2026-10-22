@@ -35,6 +35,9 @@ const murmurRecorder: RecorderBridge = {
   sendAudio: (payload): void => {
     ipcRenderer.send(IPC_CHANNELS.dictationAudio, payload)
   },
+  sendLevel: (payload): void => {
+    ipcRenderer.send(IPC_CHANNELS.dictationLevel, payload)
+  },
   reportCaptureError: (payload): void => {
     ipcRenderer.send(IPC_CHANNELS.dictationCaptureError, payload)
   },

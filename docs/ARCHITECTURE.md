@@ -97,10 +97,23 @@ Failure modes surface as `dictation:capture-error` (no device, device busy, Wind
 Tiny, dismissed-in-one-glance, and — critically — **never focusable**:
 
 - `transparent: true`, `frame: false`, `resizable: false`, `skipTaskbar: true`, `alwaysOnTop: 'screen-saver'`, `focusable: false`.
-- Shown with `showInactive()` only; `setIgnoreMouseEvents(true, { forward: true })` so mouse input passes through to whatever is underneath.
-- Positioned bottom-center of the monitor containing the keyboard-focus window; re-created/repositioned on display or DPI changes.
+- Created hidden at startup, then shown inactive as soon as its renderer is ready and **kept mapped** for the app lifetime. Idle content is fully transparent (`visibility: hidden`), so the window is neither visible nor clickable; keeping it mapped turns the Listening transition into a compositor update instead of a `ShowWindow` call, which measured roughly 150 ms slower on Windows. Shown with `showInactive()` only; `setIgnoreMouseEvents(true, { forward: true })` passes mouse input through.
+- Positioned bottom-center of the display **under the cursor** (the practical proxy for the active display, since Electron cannot ask Windows for an external app's focused window), offset above the taskbar using `display.workArea`. Repositioned on display add/remove and DPI/metric changes. Placement uses Electron DIP coordinates, so mixed-DPI layouts need no manual scale math; this was verified at 125% scaling on the dev display, while mixed-DPI multi-monitor still needs hardware testing.
+- The pill is a single 360 × 96 transparent window; its dark, rounded CSS pill contains a state icon, a short label, and — while listening — a 14-segment level meter.
+- Focus/click-through and latency were verified on Windows: the window has `WS_EX_NOACTIVATE` + `WS_EX_TRANSPARENT` + topmost styles, idle pixels are transparent, the foreground window never changed, and key-down → visible pill measured 9–45 ms over eight runs (the screen-polling probe itself costs ~10–15 ms per sample).
 
-States it renders: hidden (idle) → **recording** (soft pulse, starts within ~100 ms of key-down) → **transcribing** (small spinner) → **pasting** (near-instant, may skip) → brief confirmation, or an **error** message ("microphone blocked — check Windows settings", "transcription failed", etc.). Idle return auto-hides it. It never shows transcribed text by default; that is baked into the target app's text field, which is confirmation enough.
+States it renders, driven by `overlay:state`:
+
+| State | When | Behavior |
+|---|---|---|
+| `listening` | hotkey down, before the recorder acknowledges | shown immediately; meter fed by `dictation:level` at ~15 fps |
+| `transcribing` | key-up / max-hold reached through the whisper run | spinner; stays visible while the utterance processes |
+| `done` | transcript inserted, no other utterance pending | brief "Inserted" confirmation, auto-hides after 900 ms |
+| `error` | capture, transcription, or insertion failure | short message (max 140 chars) for 5 s, then auto-hides |
+| `idle` | tap discarded, new session, or shutdown | content transparent (the mapped window itself stays alive) |
+
+The recorder computes a 0–1 level from an `AnalyserNode` RMS window on a dBFS scale (silence ≈ −54 dBFS, loud speech ≈ −6 dBFS), sends ~15 samples per second only while its capture gate is open, and main forwards them after checking the active session id. The overlay smooths the decay in CSS/JS. Error details are truncated for the pill; the full message is always logged and shown in the tray tooltip. The overlay never shows transcribed text by default; that is baked into the target app's text field, which is confirmation enough.
+
 
 ### 3.3 Settings window
 
@@ -123,9 +136,11 @@ Principles:
 | `dictation:finish` | main → recorder | `{ sessionId }` | hotkey released: flush, encode WAV, send it back |
 | `dictation:cancel` | main → recorder | `{ sessionId }` | tap shorter than the minimum: discard silently, no WAV |
 | `dictation:audio` | recorder → main | `{ sessionId, wav: ArrayBuffer, durationMs }` | complete 16 kHz mono 16-bit WAV |
+| `dictation:level` | recorder → main | `{ sessionId, level }` | ~15 fps normalized mic level while the capture gate is open |
 | `dictation:capture-error` | recorder → main | `{ sessionId \| null, code, message }` | mic/stream failure; `null` session means startup |
 | `recorder:status` | recorder → main | `{ microphone: 'ready' \| 'unavailable', message? }` | microphone warm-up result / device lost |
-| `overlay:state` | main → overlay | `{ state, detail? }` | render the current status |
+| `overlay:state` | main → overlay | `{ state, detail? }` | render `listening`, `transcribing`, `done`, `error`, or `idle` |
+| `overlay:level` | main → overlay | `{ level }` | one 0–1 meter sample, forwarded only for the active session |
 | `app:info` | settings → main (invoke) | — | app name, version, Electron version, platform; used by the phase-1 placeholder footer |
 | `settings:get` | settings → main (invoke) | — | current settings snapshot |
 | `settings:set` | settings → main (invoke) | partial settings (validated) | save changed fields |
@@ -148,7 +163,7 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 | `pasting` | phase 5: valid text ready | `idle` (pasted & clipboard restored, or error shown) |
 | `error` | any failure (message shown in overlay) | `idle` (next keypress) |
 
-Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue and the phase-5 insertion queue both run in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately while transcriptions and insertions stay FIFO-ordered by utterance. The visible `transcribing`/`pasting` states (and their overlay feedback) arrive with phase 6. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
+Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue and the phase-5 insertion queue both run in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately while transcriptions and insertions stay FIFO-ordered by utterance. The overlay mirrors the user-visible part: **listening** on key-down, **transcribing** from key-up through the whisper run, **done** for 900 ms after a successful insertion when nothing else is pending, and **error** for five seconds on failure. A tap shorter than 300 ms hides the overlay without a result. If a new hold starts while an earlier transcript is still processing, the pitch stays on **listening** — older done/error flashes never overwrite a live recording. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
 
 Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle`, sends `dictation:cancel`, and produces no WAV or error.
 
@@ -158,10 +173,10 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 
 ## 6. Data flow — one utterance, end to end
 
-1. Murmur sits in the tray; uiohook listener armed; the recorder already has a warm mic stream; the overlay is hidden. The target app (say, a browser) has keyboard focus — Murmur never took it.
+1. Murmur sits in the tray; uiohook listener armed; the recorder already has a warm mic stream; the overlay window is mapped but fully transparent. The target app (say, a browser) has keyboard focus — Murmur never took it.
 2. The user holds the hotkey anywhere in Windows. uiohook fires keydown **in the main process**; auto-repeat re-fires are filtered (same key, still no keyup).
-3. Main creates a `sessionId` and sends `dictation:begin` (`{ sessionId, maxDurationMs }`) to the recorder. The warm worklet opens its capture gate on the next audio quantum — no device open, so the first word survives. The overlay switches to "recording" within ~100 ms.
-4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer.
+3. Main creates a `sessionId` and sends `dictation:begin` (`{ sessionId, maxDurationMs }`) to the recorder. The warm worklet opens its capture gate on the next audio quantum — no device open, so the first word survives. The overlay appears as "Listening" within ~50 ms measured (9–45 ms key-down to visible pill), and the recorder starts sending ~15 fps level samples for its meter.
+4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer. A parallel `AnalyserNode` computes the display level without touching the recorded samples.
 5. The user releases the key → uiohook keyup → main sends `dictation:finish` (or the max-hold timer sends it first).
 6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
 7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l en -nt -np -t <threads>`.
@@ -170,7 +185,7 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 10. If the hotkey is a combo, insertion first waits until every required modifier is physically released. Then the inserter borrows the clipboard, sends a synthetic Ctrl+V, waits `pasteRestoreDelayMs`, and restores the previous clipboard text. Insertions are serialized, so rapid utterances cannot interleave their clipboard windows.
 11. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
 12. If the user spoke again meanwhile, the queue processes the next `sessionId`.
-13. Overlay flashes a brief confirmation (optional, open decision) and hides; state `idle`.
+13. The overlay flashes "Inserted" for 900 ms (when no later utterance is pending) and hides; state `idle`.
 
 Model note: `ggml-base.en.bin` (~142 MB, English-only base model) ships with the app under `resources/models/`. It is **never committed** to the repo; the build fetches it from the whisper.cpp releases and the README documents that step. English-only is intentional for the first release.
 
@@ -180,7 +195,7 @@ Model note: `ggml-base.en.bin` (~142 MB, English-only base model) ships with the
 
 Why paste instead of synthetic typing? Because typed Unicode production from a hook is fragile (dead keys, layout differences, focus flicker), and Ctrl+V pastes multi-line text exactly.
 
-1. **Guard:** refuse to insert while any Murmur window has focus (the settings window today; the overlay will be non-focusable), and refuse empty text. Murmur never shows, focuses, or activates a window during insertion.
+1. **Guard:** refuse to insert while any Murmur window has focus (the settings window; the recorder and overlay are `focusable: false` by design), and refuse empty text. Murmur never shows, focuses, or activates a window during insertion.
 2. **Wait for modifiers:** if the binding is a combo (`Ctrl+Space`), wait until every required modifier is physically released. Sending a synthetic Ctrl+V while the user still holds Ctrl would include that modifier, and the synthetic Ctrl-up would leave the target app believing Ctrl was released. The wait is bounded (5 s) so a missed keyup cannot block the queue forever.
 3. **Save:** `original = await clipboard.readText()` (text only; see Limitations below).
 4. **Set:** `await clipboard.writeText(transcribedText)` — Electron's promise-based clipboard API, so the text is committed before the keystroke.

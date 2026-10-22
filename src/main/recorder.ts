@@ -6,6 +6,7 @@ import {
   IPC_CHANNELS,
   isDictationAudioPayload,
   isDictationCaptureErrorPayload,
+  isDictationLevelPayload,
   isRecorderStatusPayload,
   type CaptureErrorCode,
   type DictationBeginPayload,
@@ -38,6 +39,8 @@ export interface RecorderFailure {
 export interface RecorderOptions {
   readonly onUtteranceSaved: (result: UtteranceSaved) => void
   readonly onError: (failure: RecorderFailure) => void
+  /** Receives the recorder renderer's ~15 fps level sample for the active session. */
+  readonly onLevel?: (level: number) => void
 }
 
 export interface RecorderController {
@@ -372,9 +375,34 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
     reportError(payload.sessionId, payload.code, payload.message)
   }
 
+  function handleLevel(event: IpcMainEvent, payload: unknown): void {
+    if (!isRecorderWebContents(event.sender)) {
+      return
+    }
+
+    if (!isDictationLevelPayload(payload)) {
+      console.warn('[murmur] ignored a malformed microphone level payload')
+      return
+    }
+
+    // Levels arrive at ~15 fps. A sample that arrives after its session ended
+    // is expected (the renderer may be one interval behind) and is dropped
+    // silently rather than filling the log.
+    if (activeSession?.sessionId !== payload.sessionId) {
+      return
+    }
+
+    try {
+      options.onLevel?.(payload.level)
+    } catch (error) {
+      console.error('[murmur] microphone level handler failed', error)
+    }
+  }
+
   function dispose(): void {
     ipcMain.off(IPC_CHANNELS.dictationAudio, handleAudio)
     ipcMain.off(IPC_CHANNELS.dictationCaptureError, handleCaptureError)
+    ipcMain.off(IPC_CHANNELS.dictationLevel, handleLevel)
     ipcMain.off(IPC_CHANNELS.recorderStatus, handleStatus)
     warmResolver = null
     clearActiveSession()
@@ -383,6 +411,7 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
 
   ipcMain.on(IPC_CHANNELS.dictationAudio, handleAudio)
   ipcMain.on(IPC_CHANNELS.dictationCaptureError, handleCaptureError)
+  ipcMain.on(IPC_CHANNELS.dictationLevel, handleLevel)
   ipcMain.on(IPC_CHANNELS.recorderStatus, handleStatus)
 
   return {

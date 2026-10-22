@@ -13,7 +13,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           settings: resolve('src/preload/settings.ts'),
-          recorder: resolve('src/preload/recorder.ts')
+          recorder: resolve('src/preload/recorder.ts'),
+          overlay: resolve('src/preload/overlay.ts')
         }
       }
     }
@@ -31,7 +32,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           settings: resolve('src/renderer/settings/index.html'),
-          recorder: resolve('src/renderer/recorder/index.html')
+          recorder: resolve('src/renderer/recorder/index.html'),
+          overlay: resolve('src/renderer/overlay/index.html')
         }
       }
     }

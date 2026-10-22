@@ -12,11 +12,17 @@ import type {
 /** 100 ms at 16 kHz: small enough for a snappy stop, large enough to keep IPC quiet. */
 const CHUNK_FRAMES = 1600
 const WORKLET_NAME = 'murmur-pcm-capture'
+/** ~15 fps keeps the overlay meter lively without flooding IPC. */
+const LEVEL_INTERVAL_MS = 66
+/** RMS range mapped to the meter: -54 dBFS is silence, -6 dBFS is full scale. */
+const LEVEL_FLOOR_DB = -54
+const LEVEL_CEILING_DB = -6
 
 interface CapturePipeline {
   readonly context: AudioContext
   readonly stream: MediaStream
   readonly node: AudioWorkletNode
+  readonly analyser: AnalyserNode
 }
 
 interface WorkletChunkMessage {
@@ -49,6 +55,7 @@ let activeSessionId: string | null = null
 let activeMaxDurationMs = RECORDER_MAX_UTTERANCE_MS
 let chunks: Int16Array[] = []
 let frameCount = 0
+let levelTimer: number | null = null
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -138,7 +145,64 @@ function reportStatus(status: RecorderStatusPayload): void {
   window.murmurRecorder.reportStatus(status)
 }
 
+/**
+ * Converts one analyser window into a 0–1 value on a dBFS scale. Raw RMS would
+ * make normal speech move the meter only a few pixels, so the range from
+ * -54 dB (silence/noise floor) to -6 dB (loud speech) is spread across 0–1.
+ */
+function readLevel(analyser: AnalyserNode): number {
+  const samples = new Float32Array(analyser.fftSize)
+  analyser.getFloatTimeDomainData(samples)
+
+  let sum = 0
+  for (const sample of samples) {
+    sum += sample * sample
+  }
+
+  const rms = Math.sqrt(sum / samples.length)
+  if (rms <= 0) {
+    return 0
+  }
+
+  const decibels = 20 * Math.log10(rms)
+  const normalized = (decibels - LEVEL_FLOOR_DB) / (LEVEL_CEILING_DB - LEVEL_FLOOR_DB)
+  return Math.min(1, Math.max(0, normalized))
+}
+
+function stopLevelMonitor(): void {
+  if (levelTimer !== null) {
+    window.clearInterval(levelTimer)
+    levelTimer = null
+  }
+}
+
+function startLevelMonitor(sessionId: string): void {
+  stopLevelMonitor()
+  const active = pipeline
+  if (active === null) {
+    return
+  }
+
+  const sendSample = (): void => {
+    // The utterance can end between two timer ticks; never send a level for a
+    // session main no longer considers active.
+    if (activeSessionId !== sessionId || pipeline === null) {
+      stopLevelMonitor()
+      return
+    }
+
+    window.murmurRecorder.sendLevel({
+      sessionId,
+      level: readLevel(pipeline.analyser)
+    })
+  }
+
+  sendSample()
+  levelTimer = window.setInterval(sendSample, LEVEL_INTERVAL_MS)
+}
+
 function disposePipeline(target: CapturePipeline): void {
+  stopLevelMonitor()
   target.node.port.onmessage = null
   for (const track of target.stream.getTracks()) {
     track.stop()
@@ -209,11 +273,18 @@ async function createPipeline(): Promise<CapturePipeline> {
     node.port.onmessage = handleWorkletMessage
 
     // A muted output keeps the audio graph pulling samples without ever
-    // routing the microphone to the speakers.
+    // routing the microphone to the speakers. The analyser is a parallel
+    // branch used only to read the level for the overlay meter.
     const silence = context.createGain()
     silence.gain.value = 0
     source.connect(node)
     node.connect(silence)
+
+    const analyser = context.createAnalyser()
+    analyser.fftSize = 1024
+    source.connect(analyser)
+    analyser.connect(silence)
+
     silence.connect(context.destination)
 
     // Windows: backgroundThrottling is off on the recorder window, but the
@@ -227,7 +298,7 @@ async function createPipeline(): Promise<CapturePipeline> {
     }
 
     console.log(`[murmur recorder] microphone ready (${context.sampleRate} Hz, mono)`)
-    return { context, stream, node }
+    return { context, stream, node, analyser }
   } catch (error) {
     if (stream !== null) {
       for (const track of stream.getTracks()) {
@@ -261,6 +332,7 @@ async function ensurePipeline(): Promise<CapturePipeline> {
 
 function handleTrackEnded(): void {
   console.error('[murmur recorder] the microphone track ended')
+  stopLevelMonitor()
   const endedPipeline = pipeline
   pipeline = null
   pipelinePromise = null
@@ -322,11 +394,13 @@ async function startCapture(sessionId: string): Promise<void> {
 
     const maxFrames = Math.max(1, Math.floor((activeMaxDurationMs * RECORDER_SAMPLE_RATE) / 1000))
     active.node.port.postMessage({ type: 'start', maxFrames })
+    startLevelMonitor(sessionId)
     console.log(`[murmur recorder] capture started (max ${activeMaxDurationMs} ms)`)
   } catch (error) {
     if (activeSessionId !== sessionId) {
       return
     }
+    stopLevelMonitor()
     activeSessionId = null
     chunks = []
     frameCount = 0
@@ -339,6 +413,7 @@ function handleFinish(payload: DictationSessionPayload): void {
     return
   }
 
+  stopLevelMonitor()
   if (pipeline === null) {
     activeSessionId = null
     window.murmurRecorder.reportCaptureError({
@@ -357,6 +432,7 @@ function handleCancel(payload: DictationSessionPayload): void {
     return
   }
 
+  stopLevelMonitor()
   activeSessionId = null
   chunks = []
   frameCount = 0
@@ -383,6 +459,7 @@ function handleWorkletMessage(event: MessageEvent<unknown>): void {
     return
   }
 
+  stopLevelMonitor()
   activeSessionId = null
   const capturedFrames = frameCount
   const capturedChunks = chunks

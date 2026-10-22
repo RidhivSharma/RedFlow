@@ -95,7 +95,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 3 | Recording (mic → WAV) | ✓ done |
 | 4 | Whisper transcription | ✓ done |
 | 5 | Text insertion | ✓ done |
-| 6 | Overlay UI | ☐ not started |
+| 6 | Overlay UI | ✓ done |
 | 7 | Settings window + JSON store | ☐ not started |
 | 8 | Quality & reliability | ☐ not started |
 | 9 | Installer (NSIS) | ☐ not started |
@@ -153,10 +153,12 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 5 status: **done and verified on Windows.** Live dictation inserted text at the caret in Notepad, VS Code, a Chrome text field, and Word, and the original clipboard text returned afterwards. The insertion path uses Ctrl+V, so multi-line text is preserved rather than synthesized keystroke-by-keystroke. Focusing the settings window made Murmur refuse to paste into itself. The `Ctrl+Space` modifier wait was verified with the compiled `hotkey.ts` and `inserter.ts` under Electron using simulated uiohook events (13/13 checks): while Ctrl stayed held, no Ctrl+V was sent and the clipboard was untouched; after Ctrl keyup, exactly one Ctrl+V was sent, the transcript was on the clipboard during the restore delay, and the previous clipboard was restored. The held-modifier timeout aborted with `modifiers-held` without pasting, and an unmodified binding resolved immediately. `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build` pass.
 
 ### Phase 6 — Overlay UI
-- [ ] Frameless, transparent, always-on-top window; `skipTaskbar`, never focusable (`showInactive`), click-through when idle (`setIgnoreMouseEvents`).
-- [ ] States: hidden (idle), recording pulse, transcribing wait, error message, optional brief "inserted" confirmation.
-- [ ] Positioned bottom-center (or per settings later); handles per-monitor DPI scaling.
+- [x] Frameless, transparent, always-on-top window; `skipTaskbar`, never focusable (`showInactive`), click-through (`setIgnoreMouseEvents`).
+- [x] States: hidden (idle), recording pulse + live meter, transcribing wait, error message, brief "Inserted" confirmation.
+- [x] Positioned bottom-center of the display under the cursor (or per settings later), using Electron DIP `workArea` bounds; verified at 125% scaling (mixed-DPI multi-monitor untested — see status).
 - **Done when:** the full hold→speak→release loop responds within ~100 ms of key down visually, and the overlay never steals focus from the dictation target.
+
+> Phase 6 status: **done and verified on Windows** (single 1920×1080 display at 125% scaling). The pill renders Listening (pulsing dot + 14-segment level meter), Transcribing (spinner), Done ("Inserted" check), and Error (red alert + two-line detail); Done auto-hides after 900 ms and Error after 5 s. The meter was exercised with Chromium's fake audio device and a known-volume WAV (lit segments changed 3 → 8 → 12). Win32 inspection confirmed `WS_EX_NOACTIVATE`, `WS_EX_TRANSPARENT`, topmost, and a visible non-activating window; the foreground window handle never changed across the focus trials. The overlay is now shown once with `showInactive()` and kept mapped with fully transparent idle content, because the old hide/show cycle spent roughly 150 ms in `ShowWindow`; with the mapped window, key-down → visible pill measured **9–45 ms over eight runs** (the screen-sampling probe itself costs ~10–15 ms per sample), comfortably inside the ~100 ms target. Mixed-DPI multi-monitor placement was **not** exercised — the dev machine has one display — although positioning uses Electron DIP `workArea` bounds and reacts to display changes; repeat that check when a second monitor is available.
 
 ### Phase 7 — Settings window + JSON store
 - [ ] Settings window (React), singleton, opened from tray; closing it never quits the app.

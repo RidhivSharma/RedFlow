@@ -3,6 +3,7 @@ import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import { setTrayTooltip } from './app/tray'
 import { waitForHotkeyModifiersReleased } from './hotkey'
 import { createInserter, InsertionError } from './inserter'
+import { createOverlayPresenter } from './overlay'
 import { createRecorderController, type RecorderFailure, type UtteranceSaved } from './recorder'
 import { createTranscriber } from './transcriber'
 
@@ -51,6 +52,8 @@ export function createDictationController(
     threads: options.threads
   })
 
+  const overlay = createOverlayPresenter()
+
   const inserter = createInserter({
     pasteRestoreDelayMs: options.pasteRestoreDelayMs,
     waitForModifiersReleased: () => waitForHotkeyModifiersReleased()
@@ -93,6 +96,7 @@ export function createDictationController(
       console.error(`[murmur] ${stage}: ${message}`, error)
       if (state === 'idle') {
         setTrayTooltip(toTooltip(message))
+        overlay.showError(message)
       }
       return
     } finally {
@@ -101,6 +105,7 @@ export function createDictationController(
 
     if (pendingTranscriptions === 0 && state === 'idle') {
       setTrayTooltip('Idle')
+      overlay.showDone()
     }
   }
 
@@ -113,6 +118,7 @@ export function createDictationController(
     state = 'idle'
     pendingTranscriptions += 1
     setTrayTooltip('Transcribing...')
+    overlay.showTranscribing()
     console.log(`[murmur] utterance ready (${Math.round(result.durationMs)} ms)`)
     void transcribeUtterance(result)
   }
@@ -132,11 +138,13 @@ export function createDictationController(
     clearSession()
     state = 'idle'
     setTrayTooltip(toTooltip(failure.message))
+    overlay.showError(failure.message)
   }
 
   const recorder = createRecorderController({
     onUtteranceSaved: handleUtteranceSaved,
-    onError: handleRecorderError
+    onError: handleRecorderError,
+    onLevel: (level) => overlay.setLevel(level)
   })
 
   function beginFinishing(id: string): void {
@@ -147,6 +155,7 @@ export function createDictationController(
     clearHoldTimer()
     state = 'finalizing'
     setTrayTooltip('Saving...')
+    overlay.showTranscribing()
     recorder.finish(id)
   }
 
@@ -159,6 +168,7 @@ export function createDictationController(
     sessionId = id
     state = 'recording'
     setTrayTooltip('Recording...')
+    overlay.showListening()
     console.log(`[murmur] dictation start (${id})`)
 
     if (!recorder.begin(id, maxUtteranceMs)) {
@@ -189,6 +199,7 @@ export function createDictationController(
       clearSession()
       state = 'idle'
       setTrayTooltip('Idle')
+      overlay.hide()
       recorder.cancel(id)
       console.log(`[murmur] tap ignored (${durationMs} ms < ${minUtteranceMs} ms)`)
       return
@@ -199,10 +210,12 @@ export function createDictationController(
   }
 
   async function initialize(): Promise<void> {
+    overlay.initialize()
     await recorder.initialize()
   }
 
   async function dispose(): Promise<void> {
+    overlay.dispose()
     clearSession()
     state = 'idle'
     recorder.dispose()

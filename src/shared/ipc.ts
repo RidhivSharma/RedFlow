@@ -14,8 +14,14 @@ export const IPC_CHANNELS = {
   dictationAudio: 'dictation:audio',
   /** hidden recorder → main: microphone or capture pipeline failure. */
   dictationCaptureError: 'dictation:capture-error',
+  /** hidden recorder → main: live microphone level while the gate is open. */
+  dictationLevel: 'dictation:level',
   /** hidden recorder → main: result of the one-time microphone warm-up. */
-  recorderStatus: 'recorder:status'
+  recorderStatus: 'recorder:status',
+  /** main → overlay: the pill's current state (and an error detail). */
+  overlayState: 'overlay:state',
+  /** main → overlay: one microphone level sample for the live meter. */
+  overlayLevel: 'overlay:level'
 } as const
 
 export interface AppInfo {
@@ -78,14 +84,46 @@ export interface RecorderStatusPayload {
   readonly message?: string
 }
 
+export interface DictationLevelPayload {
+  readonly sessionId: string
+  /** Normalized 0–1 RMS level, ready to drive the overlay meter. */
+  readonly level: number
+}
+
 /** The only API exposed to the hidden recorder renderer through `window.murmurRecorder`. */
 export interface RecorderBridge {
   onBegin(handler: (payload: DictationBeginPayload) => void): void
   onFinish(handler: (payload: DictationSessionPayload) => void): void
   onCancel(handler: (payload: DictationSessionPayload) => void): void
   sendAudio(payload: DictationAudioPayload): void
+  sendLevel(payload: DictationLevelPayload): void
   reportCaptureError(payload: DictationCaptureErrorPayload): void
   reportStatus(payload: RecorderStatusPayload): void
+}
+
+/* -------------------------------------------------------------------------- */
+/* Overlay contract                                                           */
+/* -------------------------------------------------------------------------- */
+
+export const OVERLAY_STATES = ['idle', 'listening', 'transcribing', 'done', 'error'] as const
+
+export type OverlayState = (typeof OVERLAY_STATES)[number]
+
+export interface OverlayStatePayload {
+  readonly state: OverlayState
+  /** Short, single-line message shown only in the `error` state. */
+  readonly detail?: string
+}
+
+export interface OverlayLevelPayload {
+  /** Normalized 0–1 microphone level. Only meaningful while listening. */
+  readonly level: number
+}
+
+/** The only API exposed to the overlay renderer through `window.murmurOverlay`. */
+export interface OverlayBridge {
+  onState(handler: (payload: OverlayStatePayload) => void): void
+  onLevel(handler: (payload: OverlayLevelPayload) => void): void
 }
 
 /**
@@ -168,4 +206,44 @@ export function isRecorderStatusPayload(value: unknown): value is RecorderStatus
     (microphone === 'ready' || microphone === 'unavailable') &&
     (message === undefined || (typeof message === 'string' && message.length <= 500))
   )
+}
+
+export function isDictationLevelPayload(value: unknown): value is DictationLevelPayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const level = value['level']
+  return (
+    isSessionId(value['sessionId']) &&
+    typeof level === 'number' &&
+    Number.isFinite(level) &&
+    level >= 0 &&
+    level <= 1
+  )
+}
+
+export function isOverlayState(value: unknown): value is OverlayState {
+  return OVERLAY_STATES.some((state) => state === value)
+}
+
+export function isOverlayStatePayload(value: unknown): value is OverlayStatePayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const detail = value['detail']
+  return (
+    isOverlayState(value['state']) &&
+    (detail === undefined || (typeof detail === 'string' && detail.length <= 500))
+  )
+}
+
+export function isOverlayLevelPayload(value: unknown): value is OverlayLevelPayload {
+  if (!isRecord(value)) {
+    return false
+  }
+
+  const level = value['level']
+  return typeof level === 'number' && Number.isFinite(level) && level >= 0 && level <= 1
 }

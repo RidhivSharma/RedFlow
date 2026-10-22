@@ -4,6 +4,7 @@
     "src/renderer/settings/env.d.ts",
     "src/renderer/settings/**/*",
     "src/renderer/recorder/**/*",
+    "src/renderer/overlay/**/*",
     "src/shared/**/*",
     "src/preload/*.d.ts"
   ],
