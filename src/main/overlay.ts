@@ -12,7 +12,9 @@ import {
 const DONE_VISIBLE_MS = 900
 /** Errors are one sentence; five seconds is enough to read one without clicking. */
 const ERROR_VISIBLE_MS = 5000
-/** The pill is narrow, so the full technical error stays in the log and tray. */
+/** The admin-target notice asks for a manual action, so give it a little longer. */
+const NOTICE_VISIBLE_MS = 6000
+/** The pill is narrow; the friendly message is shared with the tray, raw detail goes to the log. */
 const MAX_ERROR_DETAIL = 140
 
 export interface OverlayPresenter {
@@ -24,6 +26,8 @@ export interface OverlayPresenter {
   showTranscribing(): void
   /** Brief "inserted" confirmation, then hide. Ignored while listening. */
   showDone(): void
+  /** Non-fatal result such as "text copied, press Ctrl+V manually". */
+  showNotice(message: string): void
   showError(message: string): void
   hide(): void
   dispose(): void
@@ -67,7 +71,7 @@ export function createOverlayPresenter(): OverlayPresenter {
     clearHideTimer()
     hideTimer = setTimeout(() => {
       hideTimer = null
-      if (current === 'done' || current === 'error') {
+      if (current === 'done' || current === 'notice' || current === 'error') {
         hide()
       }
     }, delayMs)
@@ -122,6 +126,15 @@ export function createOverlayPresenter(): OverlayPresenter {
     scheduleHide(DONE_VISIBLE_MS)
   }
 
+  function showNotice(message: string): void {
+    if (disposed || current === 'listening') {
+      return
+    }
+    clearHideTimer()
+    show('notice', toDetail(message))
+    scheduleHide(NOTICE_VISIBLE_MS)
+  }
+
   function showError(message: string): void {
     if (disposed) {
       return
@@ -154,6 +167,7 @@ export function createOverlayPresenter(): OverlayPresenter {
     setLevel,
     showTranscribing,
     showDone,
+    showNotice,
     showError,
     hide,
     dispose

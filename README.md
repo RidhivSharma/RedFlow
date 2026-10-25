@@ -30,7 +30,16 @@ utterance is snapshotted, queued, and transcribed locally with `whisper-cli.exe`
 (60 s timeout, one process at a time). Live F9 runs return sensible English
 text and log the elapsed time; rapid utterances transcribe in order, and
 missing resources produce a clear terminal error plus tray tooltip. Text
-insertion is phase 5.
+insertion is implemented and verified across Notepad, VS Code, Chrome, and Word.
+
+Phase 8 quality work is in progress. Near-silent holds skip Whisper entirely,
+Whisper's non-speech annotations and known silence hallucinations are removed,
+and optional toggles can drop filler words or convert spoken punctuation and
+line-break commands. Holds that start while an earlier transcript is still
+processing are queued. Failures now appear in the overlay as one friendly
+sentence, with technical detail in the log. Elevated or unknown-integrity
+targets now get a clipboard-only fallback instead of a blocked paste; see
+[Pasting into administrator apps](#pasting-into-administrator-apps).
 
 ## Requirements
 
@@ -44,12 +53,36 @@ npm install       # install dependencies (also downloads the Electron runtime)
 npm run dev       # run the app in development
 npm run build     # typecheck and build main, preload, and renderer bundles
 npm run start     # preview the built app
+npm test          # unit tests for the insertion branch and probe parser
 npm run typecheck # typecheck the Node and web sides
 npm run lint      # ESLint
 npm run icon      # regenerate the placeholder tray icon
 ```
 
-The app writes `settings.json` to `%APPDATA%\Murmur\` on first run.
+The app writes `settings.json` to `%APPDATA%\Murmur\` on first run. A rotating
+log lives in `%APPDATA%\Murmur\logs\murmur.log` (2 MB per file, three backups).
+Transcript text is not logged by default; start with `MURMUR_DEBUG=1` to include
+it for troubleshooting.
+
+## Pasting into administrator apps
+
+Windows blocks synthetic input from a normal user-level app into an app running
+as administrator or at a higher integrity level (UIPI — User Interface
+Privilege Isolation). Murmur checks the foreground process before inserting. If
+the target is elevated or its integrity cannot be checked, Murmur does **not**
+send Ctrl+V. It copies the transcript to the clipboard, leaves it there, and
+shows:
+
+> Target app is running as admin - text copied, press Ctrl+V manually.
+
+Press Ctrl+V yourself in the target app. The previous clipboard is intentionally
+not restored in this case, so the transcript stays available for the manual
+paste. For normal apps, Murmur restores the previous clipboard after the tuned
+350 ms delay.
+
+Running Murmur as administrator can let it paste into some elevated apps, but it
+is not recommended for everyday use: it gives Murmur more privilege than it
+needs. UIPI is a Windows security boundary, not a Murmur bug.
 
 ## Local Whisper resources
 

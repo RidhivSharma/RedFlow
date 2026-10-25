@@ -5,7 +5,16 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out', '**/build', '**/.eslintcache'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/build',
+      '**/.test-build',
+      '**/.eslintcache'
+    ]
+  },
   tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx}'],

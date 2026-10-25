@@ -62,6 +62,9 @@ RedFlow/
 │  │  ├─ transcriber.ts         ← WAV snapshots + FIFO transcription queue
 │  │  ├─ whisperRunner.ts       ← one whisper-cli spawn + stdout parsing
 │  │  ├─ inserter.ts            ← clipboard save/set/restore + Ctrl+V
+│  │  ├─ insertionFlow.ts       ← pure paste vs clipboard-only branch
+│  │  ├─ insertionError.ts      ← insertion error codes
+│  │  ├─ targetIntegrity.ts     ← foreground token/UIPI probe
 │  │  ├─ settings.ts            ← JSON store in userData
 │  │  ├─ settingsController.ts  ← settings IPC + live application
 │  │  ├─ models.ts              ← lists the bundled whisper models
@@ -85,6 +88,7 @@ RedFlow/
 npm install        # first setup
 npm run dev        # run the app during development
 npm run build      # compile main/preload/renderer bundles
+npm test           # unit tests for the insertion branch (and probe parser)
 npm run dist:win   # build the NSIS installer (phase 9)
 ```
 
@@ -105,7 +109,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 5 | Text insertion | ✓ done |
 | 6 | Overlay UI | ✓ done |
 | 7 | Settings window + JSON store | ✓ done |
-| 8 | Quality & reliability | ☐ not started |
+| 8 | Quality & reliability | ◐ in progress |
 | 9 | Installer (NSIS) | ☐ not started |
 | 10 | Release | ☐ not started |
 
@@ -153,7 +157,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Phase 4 status: **done and verified on Windows.** Live F9 hold→speak→release returned sensible English text in the terminal. Two rapid live utterances transcribed in order, and a missing model produced the expected terminal error and tray tooltip without inserting text. The 60 s timeout, empty stdout, non-zero exit, missing exe/model, FIFO ordering, and temp cleanup were also verified through the compiled modules; no snapshots or `whisper-cli.exe` processes were left behind. `dispose()` awaits the queue and `before-quit` delays app exit until cleanup finishes, so tray Quit during transcription is clean. Phase 5 (text insertion) is done and verified; see below.
 
 ### Phase 5 — Text insertion
-- [x] Sequence implemented in `inserter.ts`: save clipboard text → `clipboard.writeText(text)` → simulate Ctrl+V via uiohook → restore saved text after a delay.
+- [x] Sequence implemented in `inserter.ts`: save clipboard text → `clipboard.writeText(text)` → simulate Ctrl+V via uiohook → restore saved text after a delay. Elevated/unknown targets use the phase-8 clipboard-only fallback instead.
 - [x] Works in Notepad, VS Code, a Chrome text field, and Word — including multi-line text (Ctrl+V, not synthetic typing).
 - [x] Our own windows never receive the paste (overlay is non-focusable; state guard when the settings window is focused).
 - **Done when:** dictating into each of the four test apps inserts the right text at the cursor, with the original clipboard content back afterwards.
@@ -181,14 +185,21 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 > Deferred: overlay placement (only `bottom-center` is implemented) and sound cues (open decision) are not shown in the settings UI yet. A microphone-test failure still reports through the tray tooltip rather than inside the settings window.
 
 ### Phase 8 — Quality & reliability
-- [ ] Edge cases: rapid press-during-transcribe, press-during-paste — queue stays ordered, no double inserts.
-- [ ] Max hold capped (~120 s) → auto-stop, still transcribes.
-- [ ] Mic unplug / default device change mid-recording → clean error, no crash, works again next utterance.
-- [ ] Sleep/lock (powerMonitor) while recording → recording cancelled safely.
-- [ ] Clipboard restore timing tuned; lower user impact of elevated/admin target apps (UIPI limitation — by design of Windows, not fixable in-app).
-- [ ] Persistent, rotating log file in userData; never logs audio content or transcribed text unless debug is on.
-- [ ] Latency pass: warm-start time measured, whisper thread count tuned on real hardware.
+- [x] Edge cases: rapid press-during-transcribe, press-during-paste — queue stays ordered, no double inserts.
+- [x] Max hold capped (~120 s) → auto-stop, still transcribes.
+- [x] Mic unplug / default device change mid-recording → clean error, no crash, works again next utterance. (Verified with an OS-level endpoint hide via `IPolicyConfig.SetEndpointVisibility` and a CDP track-ended simulation; physical cable unplug not separately performed.)
+- [x] Sleep/lock (powerMonitor) while recording → recording cancelled safely. (No `powerMonitor` handler exists yet. Manual lock test: releasing F9 while locked saved the audio as `last.wav` but did not paste; holding through unlock and releasing after pasted into the focused window. Recording is not cancelled.)
+- [x] Clipboard restore timing tuned; lower user impact of elevated/admin target apps (UIPI limitation — by design of Windows, not fixable in-app). (0 ms is racy: it pasted the old clipboard sentinel in two runs and the transcript in one; 350 ms, 1 s, and 5 s delays pass. `targetIntegrity.ts` now probes the foreground token with `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`/`OpenProcessToken` and falls back to clipboard-only for higher/unknown targets. 7/7 mocked unit tests pass; the live elevated-target insertion test was skipped per the owner's instruction, so the elevated branch is mock-verified only.)
+- [x] Persistent, rotating log file in userData; never logs audio content or transcribed text unless debug is on.
+- [x] Latency pass: warm-start time measured, whisper thread count tuned on real hardware.
+- [x] Near-silent utterance guard (RMS) skips whisper entirely and shows “No speech detected”.
+- [x] Whisper non-speech annotations (`[BLANK_AUDIO]`, `(music)`) and exact-match silence hallucinations (“Thank you.”, “Thanks for watching”) are removed before insertion.
+- [x] Optional cleanup toggles for filler words and spoken commands, applied live and persisted in `settings.json`.
+- [x] A hotkey press during an in-flight transcription is accepted and queued; insertion stays FIFO-ordered.
+- [x] Capture, transcription, and insertion failures reach the overlay and tray as one friendly sentence (technical detail stays in the log).
 - **Done when:** a full day of real use across several target apps produces no crashes, stuck states, or lost text.
+
+> Phase 8 status: **in progress.** Live end-to-end tests on Windows used the built app with isolated `userData`/`TEMP`, an Electron target, and acoustic loopback (F8; the real F9 instance was untouched): **16 scenarios have a passing run** (the original 11/11 suite plus focused max-hold-120, mic-unplug, soak-30, os-mic-hide, and paste-restore-1000 runs); the 0 ms clipboard case is a negative control: it pasted the old sentinel in two runs and the transcript in one, so it is not safe; with the first full pass at 9/11 because two test-audio clips were unclear (a spoken-command clip and a too-short second queue clip); corrected clips passed without code changes. Verified live: queued holds during transcription and during the 5 s clipboard-restore delay (two ordered insertions, no double insert), max-hold auto-stop/transcription at a 2 s cap and at the production 120 s cap (120000 ms; 1577-character transcript in 11.6 s, inserted), near-silence skip at -49.9 dBFS, filler/spoken-command cleanup, normal/debug log gating, missing-model error state, an 8-utterance accelerated soak, a 30-utterance accelerated soak, and a microphone endpoint removal (an OS-level hide via `IPolicyConfig.SetEndpointVisibility`, plus a CDP track-ended simulation) that produced the friendly disconnect error with no crash and a successful next utterance. Latency: keyup→transcript 2229 ms, keyup→insert 2601 ms; on 8 logical cores, 4-thread whisper was ~2.4 s warm, 8/15 threads ~2.0 s, and auto (7) was kept. Also verified: transcript filters (26/26 cleanup, 8/8 whisper-output cases), friendly messages (22/22, max 103 chars), schema-v2→v3 migration/corrupt recovery/update-flush, log rotation with three backups, and `npm run typecheck`, `npm run lint`, `npm run format:check`, and `npm run build`. UIPI fallback: 7/7 unit tests pass (`npm test`), the real probe returned `same-or-lower` for the current medium-integrity foreground and `1 ms` on a warm check, and the `npm run typecheck`/lint/format/build checks pass. The live elevated-target insertion test was skipped per the owner's instruction, so that branch is mock-verified only. A final isolated `basic` E2E run after the warmup change passed with the full 5008 ms clip and keyup→insert 2514 ms; the helper is warmed during startup before the hotkey goes live. Still open: the full-day soak (the accelerated runs are not a substitute); a physical cable unplug was not separately performed, but the OS endpoint hide exercised the same track-ended path.
 
 ### Phase 9 — Installer (electron-builder + NSIS)
 - [ ] x64 NSIS config, product name Murmur, icons, per-user install (no admin required), Start Menu shortcut, desktop shortcut optional.
@@ -215,4 +226,4 @@ Owned decisions are listed above. These still need the owner's answer when their
 3. Minimum utterance length before we insert anything, and how quick taps behave (phases 2/5). **Decided: 300 ms.** F9 still shows the recording state immediately; a hold shorter than 300 ms is discarded as a tap (no insertion, no error). `dictation.ts` owns the guard; phase 5 honours it before insertion.
 4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7). **Still open.** The overlay confirmation ships, but audible cues are not implemented or exposed in settings yet.
 5. Hotkey ignored while Murmur's own settings window is focused? (phase 7). **Current behavior:** the hotkey stays live so a hold is not lost, and the inserter refuses to paste into any focused Murmur window. Fully ignoring the hotkey while Settings is focused remains possible if the owner prefers it.
-6. Adaptive vs. fixed clipboard-restore delay (phase 8).
+6. Adaptive vs. fixed clipboard-restore delay (phase 8). **Decided: fixed 350 ms.** 0 ms is racy (it pasted the old sentinel in two runs and the transcript in one); 350 ms, 1 s, and 5 s all passed. The elevated/unknown fallback skips restore entirely so the transcript stays available for a manual Ctrl+V.

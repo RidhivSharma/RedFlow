@@ -8,6 +8,7 @@ const LABELS: Readonly<Record<OverlayState, string>> = {
   listening: 'Listening',
   transcribing: 'Transcribing\u2026',
   done: 'Inserted',
+  notice: 'Copied',
   error: "Couldn't dictate"
 }
 
@@ -44,7 +45,10 @@ function setMeter(level: number): void {
 function renderState(payload: OverlayStatePayload): void {
   overlay.dataset['state'] = payload.state
   label.textContent = LABELS[payload.state]
-  detail.textContent = payload.state === 'error' ? (payload.detail ?? 'Dictation failed.') : ''
+  detail.textContent =
+    payload.state === 'error' || payload.state === 'notice'
+      ? (payload.detail ?? 'Dictation finished with a notice.')
+      : ''
   displayedLevel = 0
   setMeter(0)
   console.log(`[murmur overlay] state: ${payload.state}`)

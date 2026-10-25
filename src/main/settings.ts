@@ -194,6 +194,14 @@ function normalizeSettings(raw: unknown): MurmurSettings {
       typeof raw['trailingSpace'] === 'boolean'
         ? raw['trailingSpace']
         : DEFAULT_SETTINGS.trailingSpace,
+    removeFillerWords:
+      typeof raw['removeFillerWords'] === 'boolean'
+        ? raw['removeFillerWords']
+        : DEFAULT_SETTINGS.removeFillerWords,
+    spokenCommands:
+      typeof raw['spokenCommands'] === 'boolean'
+        ? raw['spokenCommands']
+        : DEFAULT_SETTINGS.spokenCommands,
     minUtteranceMs,
     maxUtteranceMs,
     threads: clampNumber(raw['threads'], DEFAULT_SETTINGS.threads, 0, MAX_THREADS),
@@ -427,6 +435,20 @@ function applyPatch(previous: MurmurSettings, raw: unknown): MurmurSettings {
       throw new Error('The trailing-space setting must be true or false.')
     }
     next.trailingSpace = raw['trailingSpace']
+  }
+
+  if (hasOwn(raw, 'removeFillerWords')) {
+    if (typeof raw['removeFillerWords'] !== 'boolean') {
+      throw new Error('The filler-word setting must be true or false.')
+    }
+    next.removeFillerWords = raw['removeFillerWords']
+  }
+
+  if (hasOwn(raw, 'spokenCommands')) {
+    if (typeof raw['spokenCommands'] !== 'boolean') {
+      throw new Error('The spoken-commands setting must be true or false.')
+    }
+    next.spokenCommands = raw['spokenCommands']
   }
 
   if (hasOwn(raw, 'minUtteranceMs')) {

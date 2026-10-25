@@ -284,6 +284,33 @@ function App(): React.JSX.Element {
 
         <section className="card">
           <div className="card-heading">
+            <h2>Text cleanup</h2>
+            <p>Shape the transcript before Murmur pastes it.</p>
+          </div>
+
+          <Toggle
+            label="Remove filler words"
+            description="Drop sounds such as “um” and “uh”, including their longer spellings."
+            checked={settings.removeFillerWords}
+            disabled={capturing}
+            onChange={(checked) => {
+              void applyPatch({ removeFillerWords: checked })
+            }}
+          />
+
+          <Toggle
+            label="Spoken commands"
+            description="Turn “new line”, “new paragraph”, “period”, “comma”, and “question mark” into punctuation and line breaks."
+            checked={settings.spokenCommands}
+            disabled={capturing}
+            onChange={(checked) => {
+              void applyPatch({ spokenCommands: checked })
+            }}
+          />
+        </section>
+
+        <section className="card">
+          <div className="card-heading">
             <h2>Microphone</h2>
             <p>The input Murmur keeps warm between utterances.</p>
           </div>

@@ -23,6 +23,7 @@ import {
   sendToRecorder,
   sendToRecorderControl
 } from './windows/recorderWindow'
+import { analyzePcm16Wav } from './silence'
 
 const FINISH_TIMEOUT_MS = 8000
 const MIC_WARM_TIMEOUT_MS = 5000
@@ -32,6 +33,9 @@ export interface UtteranceSaved {
   readonly sessionId: string
   readonly filePath: string
   readonly durationMs: number
+  /** Whole-utterance level; lets the controller skip whisper for silence. */
+  readonly rmsDbfs: number
+  readonly nearlySilent: boolean
 }
 
 export interface RecorderFailure {
@@ -362,16 +366,19 @@ export function createRecorderController(options: RecorderOptions): RecorderCont
       `[murmur] received ${Math.round(info.durationMs)} ms of audio (${info.dataBytes} bytes)`
     )
 
+    const silence = analyzePcm16Wav(payload.wav, info)
     saveQueue = saveQueue
       .then(() => saveLastUtterance(payload.wav))
       .then((filePath) => {
         console.log(
-          `[murmur] saved last utterance to ${filePath} (${Math.round(info.durationMs)} ms)`
+          `[murmur] saved last utterance to ${filePath} (${Math.round(info.durationMs)} ms, ${silence.dbfs.toFixed(1)} dBFS)`
         )
         notifySaved({
           sessionId: payload.sessionId,
           filePath,
-          durationMs: info.durationMs
+          durationMs: info.durationMs,
+          rmsDbfs: silence.dbfs,
+          nearlySilent: silence.nearlySilent
         })
       })
       .catch((error: unknown) => {

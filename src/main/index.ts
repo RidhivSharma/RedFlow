@@ -1,5 +1,6 @@
 import { app, dialog } from 'electron'
 import { applyAutostart } from './app/autostart'
+import { initializeLogging } from './app/logger'
 import { configureSessionPermissions } from './app/permissions'
 import { acquireSingleInstanceLock } from './app/singleInstance'
 import { createTray, destroyTray, setTrayTooltip } from './app/tray'
@@ -30,6 +31,9 @@ function reportStartupError(message: string, error: unknown): void {
 }
 
 async function startApp(): Promise<void> {
+  // Install the rotating log before settings and windows start emitting messages.
+  initializeLogging()
+
   try {
     await initializeSettings()
   } catch (error) {

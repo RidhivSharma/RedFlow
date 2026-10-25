@@ -57,12 +57,14 @@ One Node process. Responsibilities and where they live:
 | Hotkey | `src/main/hotkey.ts`, `src/main/hotkeyBinding.ts`, `src/main/hotkeyController.ts`, `src/main/hotkeyCapture.ts` | uiohook-napi *listener* (keydown/keyup with keycodes — not Electron shortcuts) plus the *simulator* used for the final Ctrl+V tap. Runs in main so a hung renderer can't lose keyboard tracking. `hotkeyBinding.ts` validates the primary key and modifier names into keycodes; key auto-repeat is latched out until the matching keyup. `hotkeyController.ts` owns start/stop so settings can rebind live, and `hotkeyCapture.ts` temporarily owns the hook while the settings window picks a new key. |
 | Dictation state machine | `src/main/dictation.ts` | The single owner of "what is happening right now" (section 5). All windows are told state changes through IPC. |
 | Recorder sessions | `src/main/recorder.ts` | Owns the hidden window's main-process side: one active session, renderer payload validation, an 8 s finish watchdog, WAV validation, and writing `%TEMP%\murmur\last.wav`. Also brokers microphone listing, device switching, and the settings test meter. |
-| Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts` | `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l <en\|auto> -nt -np -t`, parses and cleans stdout, kills after 60 s, and cleans up in `finally`. |
-| Inserter | `src/main/inserter.ts` | Serialized clipboard save/set/restore + Ctrl+V simulation via uiohook. Waits for hotkey modifiers to be released and refuses to paste into Murmur's own windows. Sequencing rules in section 7. |
+| Transcriber | `src/main/transcriber.ts`, `src/main/whisperRunner.ts`, `src/main/silence.ts` | `silence.ts` measures whole-utterance RMS before whisper is queued. `transcriber.ts` snapshots the latest WAV to a unique file and runs a strict FIFO queue. `whisperRunner.ts` spawns one `whisper-cli.exe` with `-m -f -l <en\|auto> -nt -np -t`, parses and cleans stdout, removes non-speech annotations and known silence hallucinations, kills after 60 s, and cleans up in `finally`. |
+| Inserter | `src/main/inserter.ts` | Serialized clipboard save/set/restore + Ctrl+V simulation via uiohook. Waits for hotkey modifiers, refuses to paste into Murmur's own windows, and falls back to clipboard-only for elevated/unknown targets. Sequencing rules in section 7. |
+| Target integrity | `src/main/targetIntegrity.ts` | One hidden Windows PowerShell helper, warmed during app initialization. It calls `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`/`OpenProcessToken` on the foreground process and compares elevation/integrity with Murmur. Malformed, failed, or slow checks are `unknown` (treated as unsafe). |
 | Settings | `src/main/settings.ts`, `src/main/settingsController.ts`, `src/main/models.ts`, `src/main/app/autostart.ts` | JSON at `%APPDATA%\Murmur\settings.json`. Load with per-key validation + defaults; save debounced and atomically (write temp file, rename). `settingsController.ts` serves the settings window and applies changes live (hotkey, microphone, autostart); `models.ts` lists `.bin` files; `autostart.ts` mirrors `autostart` into Windows login items. Schema in section 8. |
+| Logging | `src/main/app/logger.ts` | Mirrors the main process console into `%APPDATA%\Murmur\logs\murmur.log`. The file rotates at 2 MB, keeping three backups (`murmur.log.1`–`.3`). Writes are synchronous and best-effort so a locked disk never interrupts dictation. Audio samples are never logged, and transcript text is written only when the app is started with `MURMUR_DEBUG=1`. |
 | Windows | `src/main/windows/*.ts` | Factories for the three windows (section 3). |
 | Permissions | `src/main/app/permissions.ts` | Session handlers allow `media` only for the hidden recorder window, audio only. Every other window and permission is denied. |
-| Misc OS glue | — | `powerMonitor` (cancel recording on sleep/lock), `app.setLoginItemSettings` for start-with-Windows, `app.getPath('temp')` for WAV scratch space. |
+| Misc OS glue | — | `app.setLoginItemSettings` for start-with-Windows and `app.getPath('temp')` for WAV scratch space. Sleep/lock cancellation via `powerMonitor` is still open (phase 8). |
 
 **Windows-specific:** low-level keyboard hooks + clipboard writes + spawning an unsigned local exe is a pattern heuristic antivirus sometimes dislikes. Murmur does nothing secretly — if AV flags it, the fix is honest: document it, and consider code signing at release time.
 
@@ -109,10 +111,10 @@ States it renders, driven by `overlay:state`:
 | `listening` | hotkey down, before the recorder acknowledges | shown immediately; meter fed by `dictation:level` at ~15 fps |
 | `transcribing` | key-up / max-hold reached through the whisper run | spinner; stays visible while the utterance processes |
 | `done` | transcript inserted, no other utterance pending | brief "Inserted" confirmation, auto-hides after 900 ms |
-| `error` | capture, transcription, or insertion failure | short message (max 140 chars) for 5 s, then auto-hides |
+| `error` | capture, transcription, or insertion failure | one friendly sentence (max 140 chars) mapped from the technical error code for 5 s, then auto-hides; the raw detail stays in the log |
 | `idle` | tap discarded, new session, or shutdown | content transparent (the mapped window itself stays alive) |
 
-The recorder computes a 0–1 level from an `AnalyserNode` RMS window on a dBFS scale (silence ≈ −54 dBFS, loud speech ≈ −6 dBFS), sends ~15 samples per second only while its capture gate is open, and main forwards them after checking the active session id. The overlay smooths the decay in CSS/JS. Error details are truncated for the pill; the full message is always logged and shown in the tray tooltip. The overlay never shows transcribed text by default; that is baked into the target app's text field, which is confirmation enough.
+The recorder computes a 0–1 level from an `AnalyserNode` RMS window on a dBFS scale (silence ≈ −54 dBFS, loud speech ≈ −6 dBFS), sends ~15 samples per second only while its capture gate is open, and main forwards them after checking the active session id. The overlay smooths the decay in CSS/JS. The overlay and tray show the same friendly sentence (max 140 chars); the raw error stays in the log. The overlay never shows transcribed text by default; that is baked into the target app's text field, which is confirmation enough.
 
 
 ### 3.3 Settings window
@@ -187,7 +189,9 @@ One state at a time, owned by `dictation.ts`. Guards make confusion impossible: 
 | `pasting` | phase 5: valid text ready | `idle` (pasted & clipboard restored, or error shown) |
 | `error` | any failure (message shown in overlay) | `idle` (next keypress) |
 
-Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue and the phase-5 insertion queue both run in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately while transcriptions and insertions stay FIFO-ordered by utterance. The overlay mirrors the user-visible part: **listening** on key-down, **transcribing** from key-up through the whisper run, **done** for 900 ms after a successful insertion when nothing else is pending, and **error** for five seconds on failure. A tap shorter than 300 ms hides the overlay without a result. If a new hold starts while an earlier transcript is still processing, the pitch stays on **listening** — older done/error flashes never overwrite a live recording. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
+Phase 3 stops at `finalizing → idle`. The phase-4 transcription queue and the phase-5 insertion queue both run in the background after the WAV is saved, while the dictation state returns to `idle`; this lets the next hold start immediately while transcriptions and insertions stay FIFO-ordered by utterance. A hold accepted while an earlier transcript is still transcribing or pasting is therefore **queued**, not ignored: the microphone is independent of whisper, and `inserter.ts` serializes the clipboard windows. The overlay mirrors the user-visible part: **listening** on key-down, **transcribing** from key-up through the whisper run, **done** for 900 ms after a successful insertion when nothing else is pending, **notice** for six seconds when the transcript was copied but not pasted (elevated/unknown target), and **error** for five seconds on failure. A tap shorter than 300 ms hides the overlay without a result. A hold that started during an earlier transcription keeps the pitch on **listening**; older done/error flashes never overwrite a live recording. A new keypress during `finalizing` is ignored — the disk write is milliseconds.
+
+Before an utterance is queued for whisper, main computes its whole-utterance RMS (section 6.1). Audio below about -48 dBFS is treated as no speech: whisper is never spawned, a friendly "No speech detected" message appears, and the dictation state returns to `idle` immediately.
 
 Tap policy (decided): minimum hold **300 ms**. The overlay still enters `recording` immediately on keydown, so feedback is instant; releasing before 300 ms returns to `idle`, sends `dictation:cancel`, and produces no WAV or error.
 
@@ -203,15 +207,27 @@ Max-hold policy: at `maxUtteranceMs` (120 s default, clamped to the hard 120 s c
 4. The 16 kHz mono worklet converts `float32 → int16` and posts 100 ms chunks; the renderer accumulates them. Audio past `maxDurationMs` is never written into the utterance buffer. A parallel `AnalyserNode` computes the display level without touching the recorded samples.
 5. The user releases the key → uiohook keyup → main sends `dictation:finish` (or the max-hold timer sends it first).
 6. The worklet flushes its partial chunk, the renderer builds the 44-byte RIFF header + PCM data, and sends `dictation:audio` (ArrayBuffer) to main. State becomes `finalizing`.
-7. Main validates the header/duration and writes `%TEMP%\murmur\last.wav`. The transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l <en|auto> -nt -np -t <threads>`.
-8. Main reads stdout: diagnostic lines and timestamps are stripped, remaining plain-text lines are joined with single spaces, and the result is trimmed. Each run gets a 60 s timeout; `whisper-cli.exe` is killed on overrun. Non-zero exit → error path with whisper's stderr detail.
-9. Non-empty text is returned to the dictation controller, which queues it for the inserter (section 7). Empty text → "No speech was recognized" in the tray/log until the overlay exists.
-10. If the hotkey is a combo, insertion first waits until every required modifier is physically released. Then the inserter borrows the clipboard, sends a synthetic Ctrl+V, waits `pasteRestoreDelayMs`, and restores the previous clipboard text. Insertions are serialized, so rapid utterances cannot interleave their clipboard windows.
-11. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
-12. If the user spoke again meanwhile, the queue processes the next `sessionId`.
-13. The overlay flashes "Inserted" for 900 ms (when no later utterance is pending) and hides; state `idle`.
+7. Main validates the header/duration, measures the whole-utterance RMS, and writes `%TEMP%\murmur\last.wav`. If the level is below the near-silence threshold, no snapshot is taken and no whisper process is spawned; the overlay says "No speech detected" and the pipeline stops here.
+8. Otherwise the transcriber immediately snapshots that file to a per-session path (so a following utterance cannot overwrite it) and queues: `whisper-cli.exe -m <model> -f <wav> -l <en|auto> -nt -np -t <threads>`.
+9. Main reads stdout: diagnostic lines and timestamps are stripped, non-speech annotations such as `[BLANK_AUDIO]` or `(music)` are removed, and an exact-match silence hallucination ("Thank you.", "Thanks for watching") is treated as empty. Each run gets a 60 s timeout; `whisper-cli.exe` is killed on overrun. Non-zero exit → error path with whisper's stderr detail.
+10. The controller applies the optional transcript cleanups (filler words, spoken commands) to the cleaned result. An empty result → a friendly "No speech" message in the overlay; nothing is inserted.
+11. Non-empty text is returned to the dictation controller, which queues it for the inserter (section 7).
+12. If the hotkey is a combo, insertion first waits until every required modifier is physically released. Then the inserter borrows the clipboard, sends a synthetic Ctrl+V, waits `pasteRestoreDelayMs`, and restores the previous clipboard text. Insertions are serialized, so rapid utterances cannot interleave their clipboard windows.
+13. The per-session WAV snapshot is deleted in a `finally` immediately after the whisper run (deletion happens even on failure). `last.wav` is a phase-3 diagnostic and is simply overwritten by the next utterance.
+14. If the user spoke again meanwhile, the queue processes the next `sessionId`.
+15. The overlay flashes "Inserted" for 900 ms (when no later utterance is pending) and hides; state `idle`.
 
 Model note: `ggml-base.en.bin` (~142 MB, English-only base model) ships with the app under `resources/models/`. It is **never committed** to the repo; the build fetches it from the whisper.cpp releases and the README documents that step. English-only is intentional for the first release.
+
+### 6.1 Transcript cleanup
+
+Three layers keep whisper's silence artifacts and the user's own verbal habits out of the target app:
+
+1. **No-speech guard (always on).** `silence.ts` walks the validated PCM payload and computes whole-utterance RMS. Below `NEAR_SILENCE_RMS` (0.004, about -48 dBFS) the recording is treated as silence: no snapshot, no whisper process, and a friendly overlay message. This is the cheapest fix for whisper hallucinating on quiet audio. `last.wav` is still written for diagnosis.
+2. **Whisper artifacts (always on).** `src/shared/transcript.ts` strips bracketed/parenthesised non-speech labels (`[BLANK_AUDIO]`, `[SILENCE]`, `(music)` …) and replaces an exact-match full transcript that is a known silence hallucination ("Thank you.", "Thanks for watching", "Please subscribe", …) with an empty string. Exact matching means a genuine sentence like "Thank you for the update" survives.
+3. **Optional cleanups (settings toggles, default off).** `removeFillerWords` drops whole-word "um"/"uh" variants and repairs the sentence's capital letter. `spokenCommands` turns "period", "comma", "question mark", "new line", and "new paragraph" into `.`, `,`, `?`, `\n`, and `\n\n`. Both run per utterance in the controller, so toggling applies to the next dictation without a restart.
+
+The raw transcript is never written to the log. Default logs include only its character count; `MURMUR_DEBUG=1` opts into the text in both the terminal and the rotating log file.
 
 ---
 
@@ -221,20 +237,22 @@ Why paste instead of synthetic typing? Because typed Unicode production from a h
 
 1. **Guard:** refuse to insert while any Murmur window has focus (the settings window; the recorder and overlay are `focusable: false` by design), and refuse empty text. Murmur never shows, focuses, or activates a window during insertion.
 2. **Wait for modifiers:** if the binding is a combo (`Ctrl+Space`), wait until every required modifier is physically released. Sending a synthetic Ctrl+V while the user still holds Ctrl would include that modifier, and the synthetic Ctrl-up would leave the target app believing Ctrl was released. The wait is bounded (5 s) so a missed keyup cannot block the queue forever.
-3. **Save:** `original = await clipboard.readText()` (text only; see Limitations below).
-4. **Set:** `await clipboard.writeText(transcribedText)` — Electron's promise-based clipboard API, so the text is committed before the keystroke.
-5. **Tap:** uiohook-napi `keyTap(UiohookKey.V, [UiohookKey.Ctrl])` sends a synthetic Ctrl+V. The focused app — which is still the target app, since Murmur never steals focus — receives the paste and inserts our text at its caret.
-6. **Restore:** wait `pasteRestoreDelayMs` (default 350 ms), then `await clipboard.writeText(original)`. Restore runs in a `finally`, including when the tap fails.
+3. **Check the target:** `targetIntegrity.ts` asks a hidden Windows PowerShell helper to call `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` and `OpenProcessToken` on the foreground process, then compares `TokenElevation` and `TokenIntegrityLevel` with Murmur's own token. Any failure is `unknown`.
+4. **Unsafe target — clipboard only:** if the target is elevated, has higher integrity, or the check failed, write the transcript to the clipboard and **do not send Ctrl+V and do not restore the previous clipboard**. The transcript must stay available so the user can press Ctrl+V manually. The overlay shows a notice; the exact admin message is `Target app is running as admin - text copied, press Ctrl+V manually.`
+5. **Save (normal targets):** `original = await clipboard.readText()` (text only; see Limitations below).
+6. **Set:** `await clipboard.writeText(transcribedText)` — Electron's promise-based clipboard API, so the text is committed before the keystroke.
+7. **Tap:** uiohook-napi `keyTap(UiohookKey.V, [UiohookKey.Ctrl])` sends a synthetic Ctrl+V. The focused app — which is still the target app, since Murmur never steals focus — receives the paste and inserts our text at its caret.
+8. **Restore:** wait `pasteRestoreDelayMs` (default 350 ms), then `await clipboard.writeText(original)`. Restore runs in a `finally`, including when the tap fails. This path is skipped for the clipboard-only fallback.
 
-Insertions go through a FIFO queue inside the inserter, so overlapping utterances cannot interleave their save/set/restore windows.
+Insertions go through a FIFO queue inside the inserter, so overlapping utterances cannot interleave their save/set/restore windows. The integrity probe runs inside that queue too; a slow or failed probe answers `unknown` after 1.5 s rather than blocking indefinitely. The helper is started during startup before the hotkey goes live (`inserter.warmup()`) so PowerShell and `Add-Type` finish compiling without delaying capture; the actual token check still happens immediately before the paste.
 
-Why the delay? Windows apps don't necessarily read the clipboard the instant the keystroke arrives — some (Word, Excel, RDP sessions) read it a moment *later*. Restoring too early means the target pastes the *old* clipboard right after we've restored it. The delay is the known race; whether to make it adaptive is an open decision (phase 8).
+Why the delay? Windows apps don't necessarily read the clipboard the instant the keystroke arrives — some (Word, Excel, RDP sessions) read it a moment *later*. Restoring too early means the target pastes the *old* clipboard right after we've restored it. The delay is the known race; the decided value is a fixed 350 ms (0 ms is racy, while 350 ms, 1 s, and 5 s all passed).
 
 **Why not send WM_PASTE / use other insertion APIs?** There is no universal programmatic "insert here" API into arbitrary windows — the synthetic keystroke is the reliable lowest common denominator.
 
 **Known limitations (documented, not bugs):**
-- **Apps running as Administrator** ignore synthetic input from user-level processes (Windows UIPI — a security boundary between integrity levels). Dictation into an elevated window silently does nothing unless Murmur itself is elevated. We can't fix it in-app; the overlay will say so (phase 8), and the README documents it.
-- **The clipboard is borrowed.** Non-text clipboard content (images, file lists, rich formatting) isn't round-tripped by the initial version — it's saved/restored as text where possible and otherwise lost during the insert window (a fraction of a second). Preserving richer formats is a phase 8 stretch goal.
+- **Apps running as Administrator** ignore synthetic input from user-level processes (Windows UIPI — a security boundary between integrity levels). Murmur now detects the foreground token before inserting. For an elevated/higher-integrity or unknown target it copies the transcript, leaves it on the clipboard, and shows a notice asking for a manual Ctrl+V; the previous clipboard is intentionally not restored. Running Murmur as administrator can allow pasting into some elevated apps, but is not recommended for everyday use. This remains a Windows limitation, not an in-app paste fix.
+- **The clipboard is borrowed.** Non-text clipboard content (images, file lists, rich formatting) isn't round-tripped by the initial version — it's saved/restored as text where possible and otherwise lost during the insert window (a fraction of a second). Preserving richer formats is a phase 8 stretch goal. In the UIPI fallback the previous clipboard is not restored at all, by design.
 - **If the user copies something during the restore delay**, their copy may be overwritten by our restore. The window is small; logging/UX mitigation deferred to phase 8.
 
 ---
@@ -245,13 +263,15 @@ Written atomically (temp file + rename), debounced (250 ms), and flushed during 
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `schemaVersion` | `number` | `2` | migration marker; a v1 file upgrades in place because every v2 key has a default |
+| `schemaVersion` | `number` | `3` | migration marker; older files upgrade in place because every newer key has a default |
 | `hotkey` | `string` | `F9` | primary push-to-talk key (case-insensitive `UiohookKey` name) |
 | `hotkeyModifiers` | `string[]` | `[]` | modifiers that must be held with the key (`Ctrl`, `Alt`, `Shift`, `Win`) |
 | `microphoneId` | `string \| null` | `null` | input device id from the settings dropdown; `null` = Windows default |
 | `modelPath` | `string \| null` | `null` | `.bin` file name in `resources/models`, an absolute path, or `null` for the bundled model |
 | `language` | `'en' \| 'auto'` | `'en'` | whisper language flag; `auto` needs a multilingual model |
 | `trailingSpace` | `boolean` | `true` | append one space after each transcript |
+| `removeFillerWords` | `boolean` | `false` | drop "um"/"uh" variants before insertion |
+| `spokenCommands` | `boolean` | `false` | convert spoken punctuation and line-break commands |
 | `minUtteranceMs` | `number` | `300` | ignore taps shorter than this |
 | `maxUtteranceMs` | `number` | `120000` | auto-stop cap |
 | `threads` | `number` | `0` | whisper threads; `0` = auto (logical cores − 1, min 2) |
@@ -280,6 +300,7 @@ The primary key down starts dictation only when every listed modifier is held. D
 | Model bin | `<repo>/resources/models/` | `<install>\resources\models\` (`extraResources`) |
 | uiohook native `.node` | `node_modules` (resolved normally) | `app.asar.unpacked` via `asarUnpack` — native modules can't load from inside an asar |
 | Settings JSON | `%APPDATA%\Murmur\settings.json` | same |
+| Logs | `%APPDATA%\Murmur\logs\murmur.log` (+ `.1`–`.3` backups) | same |
 | Temp WAVs | `%TEMP%\murmur\last.wav` (latest utterance, kept for inspection) | same |
 
 `whisper-cli.exe` needs its DLLs beside it. The whisper.cpp release zip keeps them in a `Release/` folder; its contents are flattened into `resources/whisper/` so dev and packaged layouts match.
@@ -292,7 +313,7 @@ The exact installed path (per-user install is the default) is confirmed when the
 
 ## 10. Windows-specific gotcha list (from project experience)
 
-1. **UIPI / elevated targets** — synthetic input is blocked into admin windows (section 7). Graceful UX note, not a code fix.
+1. **UIPI / elevated targets** — synthetic input is blocked into admin windows (section 7). Murmur probes the foreground token and falls back to clipboard-only + a manual-paste notice; the security boundary itself is not bypassed.
 2. **Key auto-repeat** — holding a key re-sends keydown at ~30 Hz. The hotkey layer treats "keydown already active" as a no-op.
 3. **Focus discipline** — synthesized Ctrl+V goes to whatever is focused; every Murmur window must neither grab focus (`focusable:false` for the overlay, `showInactive` for updates) nor block the target.
 4. **Mic privacy toggle** — Windows Settings can deny desktop apps microphone access; `getUserMedia` then fails. Detectable and must produce a pointer to `Settings → Privacy & security → Microphone`.
@@ -310,6 +331,7 @@ The exact installed path (per-user install is the default) is confirmed when the
 - Media permission is granted only to the recorder window, audio only; all other permission requests are denied. IPC payloads are validated again in main, and recorder messages must come from that window's `webContents`.
 - The preload layer is the attack boundary: named functions only; main validates every payload.
 - File touches confined to: temp WAVs (`last.wav` plus phase-4 snapshots deleted in `finally`), settings JSON, log files; nothing else on disk.
+- The UIPI check uses one hidden Windows PowerShell helper, started during app initialization and kept warm for the app run. It receives an embedded, local C# probe over stdin and returns only a three-value status; it has no network access and is killed during shutdown. If it cannot answer, insertion falls back to clipboard-only rather than risking a blocked paste.
 - No network at runtime — the whisper model and `whisper-cli.exe` are pinned, checksum-verified downloads at build time. Dependencies are audited for phone-home behavior before adoption.
 
 ## 12. Open decisions
@@ -321,4 +343,4 @@ Tracks with AGENTS.md §Open decisions; summary with the architectural angle:
 3. **Minimum utterance length / tap behavior** (phases 2/5) — **decided: 300 ms.** Shorter holds are discarded as taps after a brief recording pulse; no error is shown. Actual insertion will honour the decision in phase 5.
 4. **Sound cues & confirmation flash** (phases 6/7) — audible feedback keys off user tolerance.
 5. **Hotkey while the settings window is focused** (phase 7) — current build keeps the hotkey live so a hold is never silently lost, and the inserter's own-window guard refuses to paste the transcript back into Murmur. Fully ignoring the hotkey while Settings is focused remains possible if the owner prefers it.
-6. **Adaptive clipboard-restore delay** (phase 8) — fixed 350 ms is simple; adaptive adds complexity and possible edge cases.
+6. **Clipboard-restore delay** (phase 8) — **decided: fixed 350 ms.** 0 ms is racy (it pasted the old sentinel twice and the transcript once); 350 ms, 1 s, and 5 s passed. The elevated/unknown fallback skips restore so the transcript remains available for a manual Ctrl+V.

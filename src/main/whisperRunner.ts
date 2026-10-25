@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { WhisperLanguage } from '../shared/settings'
+import { cleanTranscriptArtifacts } from '../shared/transcript'
 
 /** One whisper-cli run must finish within this window or it is killed. */
 const TRANSCRIBE_TIMEOUT_MS = 60_000
@@ -84,7 +85,7 @@ export function cleanWhisperOutput(raw: string): string {
     parts.push(line)
   }
 
-  return parts.join(' ').trim()
+  return cleanTranscriptArtifacts(parts.join(' ').trim())
 }
 
 function formatFailureDetail(stderr: string): string {

@@ -2,6 +2,7 @@ node_modules
 out
 dist
 build
+.test-build
 .DS_Store
 .eslintcache
 *.log*

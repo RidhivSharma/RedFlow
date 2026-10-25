@@ -123,6 +123,27 @@ body {
   display: flex;
 }
 
+.info {
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: rgb(251 191 36 / 16%);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fbbf24;
+}
+
+.overlay[data-state='notice'] .info {
+  display: flex;
+}
+
+.overlay[data-state='notice'] .pill {
+  border-color: rgb(251 191 36 / 24%);
+}
+
 .text {
   display: flex;
   flex: 1;
@@ -149,7 +170,8 @@ body {
   color: #94a3b8;
 }
 
-.overlay[data-state='error'] .detail {
+.overlay[data-state='error'] .detail,
+.overlay[data-state='notice'] .detail {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -158,6 +180,10 @@ body {
 
 .overlay[data-state='error'] .label {
   color: #fca5a5;
+}
+
+.overlay[data-state='notice'] .label {
+  color: #fcd34d;
 }
 
 .meter {

@@ -1,28 +1,16 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import { BrowserWindow, clipboard } from 'electron'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
+import { executeInsertion, type InsertionOutcome, type TargetIntegrity } from './insertionFlow'
+import { InsertionError } from './insertionError'
+import { createTargetIntegrityProbe, type TargetIntegrityProbe } from './targetIntegrity'
 
 const DEFAULT_RESTORE_DELAY_MS = 350
 const MIN_RESTORE_DELAY_MS = 0
 const MAX_RESTORE_DELAY_MS = 5000
 
-export type InsertionErrorCode =
-  | 'empty-text'
-  | 'modifiers-held'
-  | 'own-window-focused'
-  | 'paste-failed'
-  | 'restore-failed'
-  | 'cancelled'
-
-export class InsertionError extends Error {
-  readonly code: InsertionErrorCode
-
-  constructor(code: InsertionErrorCode, message: string) {
-    super(message)
-    this.name = 'InsertionError'
-    this.code = code
-  }
-}
+export { InsertionError } from './insertionError'
+export type { InsertionErrorCode } from './insertionError'
 
 export interface InserterOptions {
   /** How long the target app gets to read the clipboard before it is restored. */
@@ -34,11 +22,15 @@ export interface InserterOptions {
    * Resolves `false` if they are still held after the wait limit.
    */
   readonly waitForModifiersReleased: () => Promise<boolean>
+  /** Overridable for tests; production uses the Windows integrity probe. */
+  readonly targetIntegrityProbe?: TargetIntegrityProbe
 }
 
 export interface Inserter {
+  /** Starts the integrity helper during startup so its first check is cheap. */
+  warmup(): void
   /** Queues one transcript. Insertions run strictly in call order. */
-  insert(text: string): Promise<void>
+  insert(text: string): Promise<InsertionOutcome>
   /** Rejects new insertions and resolves after the queued one has restored the clipboard. */
   dispose(): Promise<void>
 }
@@ -52,14 +44,18 @@ function clampRestoreDelay(value: number): number {
 
 /**
  * True when one of Murmur's own windows currently owns keyboard focus. Only the
- * settings window can be focusable today; the recorder and the future overlay
- * are deliberately not focusable.
+ * settings window can be focusable today; the recorder and the overlay are
+ * deliberately not focusable.
  */
 function hasFocusedMurmurWindow(): boolean {
   return BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused())
 }
 
-async function performInsert(text: string, options: InserterOptions): Promise<void> {
+async function performInsert(
+  text: string,
+  options: InserterOptions,
+  probe: TargetIntegrityProbe
+): Promise<InsertionOutcome> {
   const trimmed = text.trim()
   if (trimmed === '') {
     throw new InsertionError('empty-text', 'There was no text to insert.')
@@ -89,45 +85,41 @@ async function performInsert(text: string, options: InserterOptions): Promise<vo
     throw new InsertionError('own-window-focused', 'Murmur has focus, so the text was not pasted.')
   }
 
-  // Windows: no window is shown, focused, or activated here. The clipboard API
-  // is silent and uiohook posts input to whatever window already has focus, so
-  // the user's dictation target keeps focus throughout the insertion.
-  //
-  // Known limitation (docs/ARCHITECTURE.md §7): only text is round-tripped.
-  // An image or file-list clipboard is replaced by text and cannot be restored.
-  let savedText: string | null = null
-  let insertionFailed = false
-  let restoreFailed = false
-
+  // Windows: UIPI blocks synthetic input from a user-level process into an
+  // elevated window. Check the foreground process's token before borrowing the
+  // clipboard; an unknown result is deliberately treated as unsafe.
+  let target: TargetIntegrity = 'unknown'
   try {
-    // Electron's clipboard API is promise-based: awaiting the write guarantees
-    // the text is on the system clipboard before the paste keystroke arrives.
-    savedText = await clipboard.readText()
-    await clipboard.writeText(payload)
-    uIOhook.keyTap(UiohookKey.V, [UiohookKey.Ctrl])
-    // Apps such as Word and Excel read the clipboard slightly after the
-    // keystroke arrives; restoring too early would paste the previous content.
-    await delay(clampRestoreDelay(options.getPasteRestoreDelayMs()))
+    target = await probe.check()
   } catch (error) {
-    insertionFailed = true
-    console.error('[murmur] the synthetic Ctrl+V could not be sent', error)
-  } finally {
-    if (savedText !== null) {
-      try {
-        await clipboard.writeText(savedText)
-      } catch (error) {
-        restoreFailed = true
-        console.error('[murmur] the previous clipboard text could not be restored', error)
-      }
-    }
+    console.error('[murmur] the target app integrity could not be checked', error)
   }
 
-  if (insertionFailed) {
-    throw new InsertionError('paste-failed', 'The transcribed text could not be pasted.')
+  const outcome = await executeInsertion(
+    target,
+    payload,
+    clampRestoreDelay(options.getPasteRestoreDelayMs()),
+    {
+      readClipboard: async () => clipboard.readText(),
+      writeClipboard: async (value) => {
+        clipboard.writeText(value)
+      },
+      tapPaste: () => {
+        uIOhook.keyTap(UiohookKey.V, [UiohookKey.Ctrl])
+      },
+      delay
+    }
+  )
+
+  if (outcome.kind === 'clipboard-only') {
+    console.warn(
+      target === 'higher'
+        ? '[murmur] target app is elevated or higher integrity; transcript left on the clipboard'
+        : '[murmur] target app integrity is unknown; transcript left on the clipboard'
+    )
   }
-  if (restoreFailed) {
-    throw new InsertionError('restore-failed', 'The previous clipboard text could not be restored.')
-  }
+
+  return outcome
 }
 
 /**
@@ -136,11 +128,18 @@ async function performInsert(text: string, options: InserterOptions): Promise<vo
  * save/paste/restore windows, no matter how the whisper queue resolves.
  */
 export function createInserter(options: InserterOptions): Inserter {
+  const probe = options.targetIntegrityProbe ?? createTargetIntegrityProbe()
   let queue: Promise<void> = Promise.resolve()
   let disposed = false
   let disposePromise: Promise<void> | null = null
 
-  function insert(text: string): Promise<void> {
+  function warmup(): void {
+    if (!disposed) {
+      probe.warmup()
+    }
+  }
+
+  function insert(text: string): Promise<InsertionOutcome> {
     if (disposed) {
       return Promise.reject(
         new InsertionError(
@@ -150,7 +149,7 @@ export function createInserter(options: InserterOptions): Inserter {
       )
     }
 
-    const run = queue.then(() => performInsert(text, options))
+    const run = queue.then(() => performInsert(text, options, probe))
     // Keep the queue alive after a failed insertion so the next utterance can
     // still be pasted.
     queue = run.then(
@@ -162,9 +161,12 @@ export function createInserter(options: InserterOptions): Inserter {
 
   function dispose(): Promise<void> {
     disposed = true
-    disposePromise ??= queue
+    disposePromise ??= (async () => {
+      await queue
+      await probe.dispose()
+    })()
     return disposePromise
   }
 
-  return { insert, dispose }
+  return { warmup, insert, dispose }
 }

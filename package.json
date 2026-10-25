@@ -17,6 +17,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "lint": "eslint --cache .",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/test/insertionFlow.test.js",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "icon": "node scripts/generate-icon.mjs",

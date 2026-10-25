@@ -1,6 +1,7 @@
 out
 dist
 build
+.test-build
 node_modules
 package-lock.json
 resources/icons

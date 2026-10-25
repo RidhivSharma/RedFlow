@@ -197,13 +197,20 @@ export interface RecorderBridge {
 /* Overlay contract                                                           */
 /* -------------------------------------------------------------------------- */
 
-export const OVERLAY_STATES = ['idle', 'listening', 'transcribing', 'done', 'error'] as const
+export const OVERLAY_STATES = [
+  'idle',
+  'listening',
+  'transcribing',
+  'done',
+  'notice',
+  'error'
+] as const
 
 export type OverlayState = (typeof OVERLAY_STATES)[number]
 
 export interface OverlayStatePayload {
   readonly state: OverlayState
-  /** Short, single-line message shown only in the `error` state. */
+  /** Short, single-line message shown in the `notice` and `error` states. */
   readonly detail?: string
 }
 

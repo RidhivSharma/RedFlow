@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { RECORDER_MAX_UTTERANCE_MS } from '../shared/audio'
 import type { MicrophoneDevice } from '../shared/ipc'
 import type { MurmurSettings } from '../shared/settings'
+import { applyTranscriptPreferences } from '../shared/transcript'
+import { logDebug } from './app/logger'
 import { setTrayTooltip } from './app/tray'
+import { friendlyCaptureError, friendlyDictationError, NO_SPEECH_MESSAGE } from './friendlyErrors'
 import { waitForHotkeyModifiersReleased } from './hotkey'
-import { createInserter, InsertionError } from './inserter'
+import { createInserter } from './inserter'
+import { InsertionError } from './insertionError'
 import { createOverlayPresenter } from './overlay'
 import { createRecorderController, type RecorderFailure, type UtteranceSaved } from './recorder'
-import { createTranscriber } from './transcriber'
+import { createTranscriber, TranscriptionError } from './transcriber'
 
 export type DictationState = 'idle' | 'recording' | 'finalizing'
 
@@ -83,24 +87,50 @@ export function createDictationController(
   async function transcribeUtterance(result: UtteranceSaved): Promise<void> {
     try {
       const transcription = await transcriber.transcribe(result.filePath)
+      const settings = options.getSettings()
+      const text = applyTranscriptPreferences(transcription.text, {
+        removeFillerWords: settings.removeFillerWords,
+        spokenCommands: settings.spokenCommands
+      })
+      if (text === '') {
+        throw new TranscriptionError(
+          'empty',
+          'The transcript was empty after text cleanup and was not inserted.'
+        )
+      }
+
+      // The transcript can contain sensitive text; only the size is logged by
+      // default. MURMUR_DEBUG=1 opts into the full text in terminal and file.
       console.log(
-        `[murmur] transcript (${Math.round(transcription.elapsedMs)} ms): ${transcription.text}`
+        `[murmur] transcript ready (${Math.round(transcription.elapsedMs)} ms, ${text.length} characters)`
       )
+      logDebug(`[murmur] transcript: ${text}`)
 
       if (state === 'idle') {
         setTrayTooltip('Pasting...')
       }
-      await inserter.insert(transcription.text)
-      console.log(
-        `[murmur] inserted transcript (${transcription.text.length} characters) into the focused app`
-      )
+      const outcome = await inserter.insert(text)
+      if (outcome.kind === 'clipboard-only') {
+        // Windows: UIPI blocks synthetic input into elevated windows. The
+        // transcript is already on the clipboard; do not claim it was inserted.
+        console.warn(
+          `[murmur] transcript copied to the clipboard instead of pasted (${outcome.message})`
+        )
+        if (state === 'idle') {
+          setTrayTooltip(toTooltip(outcome.message))
+          overlay.showNotice(outcome.message)
+        }
+        return
+      }
+      console.log(`[murmur] inserted transcript (${text.length} characters) into the focused app`)
     } catch (error) {
       const stage = error instanceof InsertionError ? 'insertion failed' : 'transcription failed'
       const message = error instanceof Error ? error.message : 'Dictation failed.'
+      const friendly = friendlyDictationError(error)
       console.error(`[murmur] ${stage}: ${message}`, error)
       if (state === 'idle') {
-        setTrayTooltip(toTooltip(message))
-        overlay.showError(message)
+        setTrayTooltip(toTooltip(friendly))
+        overlay.showError(friendly)
       }
       return
     } finally {
@@ -120,6 +150,17 @@ export function createDictationController(
 
     clearSession()
     state = 'idle'
+
+    if (result.nearlySilent) {
+      // Whisper hallucinates whole phrases on silence, so don't even start it.
+      console.log(
+        `[murmur] near-silent utterance (${Math.round(result.durationMs)} ms, ${result.rmsDbfs.toFixed(1)} dBFS); skipping transcription`
+      )
+      setTrayTooltip('No speech detected')
+      overlay.showError(NO_SPEECH_MESSAGE)
+      return
+    }
+
     pendingTranscriptions += 1
     setTrayTooltip('Transcribing...')
     overlay.showTranscribing()
@@ -128,10 +169,11 @@ export function createDictationController(
   }
 
   function handleRecorderError(failure: RecorderFailure): void {
+    const friendly = friendlyCaptureError(failure.code)
     if (failure.sessionId === null) {
       // Startup and device-level failures happen while no utterance is active;
       // keep the current state untouched so a later attempt can still work.
-      setTrayTooltip(toTooltip(failure.message))
+      setTrayTooltip(toTooltip(friendly))
       return
     }
 
@@ -141,8 +183,8 @@ export function createDictationController(
 
     clearSession()
     state = 'idle'
-    setTrayTooltip(toTooltip(failure.message))
-    overlay.showError(failure.message)
+    setTrayTooltip(toTooltip(friendly))
+    overlay.showError(friendly)
   }
 
   const recorder = createRecorderController({
@@ -167,6 +209,14 @@ export function createDictationController(
   function start(): void {
     if (state !== 'idle') {
       return
+    }
+
+    if (pendingTranscriptions > 0) {
+      // A hold during an in-flight transcript is accepted rather than dropped:
+      // capture is independent of whisper, and insertion stays FIFO-ordered.
+      console.log(
+        `[murmur] hotkey accepted while ${pendingTranscriptions} transcript(s) are still processing; the new utterance will be queued`
+      )
     }
 
     const maxUtteranceMs = Math.min(
@@ -220,6 +270,10 @@ export function createDictationController(
   }
 
   async function initialize(): Promise<void> {
+    // Windows: start the hidden UIPI helper first so PowerShell/Add-Type can
+    // compile while the recorder warms, before the hotkey goes live. No audio
+    // can be lost, and the first insertion does not pay the one-time cost.
+    inserter.warmup()
     overlay.initialize()
     await recorder.initialize()
   }

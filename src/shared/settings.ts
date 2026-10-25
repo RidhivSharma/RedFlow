@@ -6,7 +6,7 @@ import { DEFAULT_HOTKEY_BINDING, HOTKEY_MODIFIERS, type HotkeyModifier } from '.
  * settings renderer. The file on disk uses the same shape; validation and
  * migration live in `src/main/settings.ts`.
  */
-export const SETTINGS_SCHEMA_VERSION = 2
+export const SETTINGS_SCHEMA_VERSION = 3
 
 /** The model Murmur ships with; `modelPath: null` resolves to this file. */
 export const DEFAULT_MODEL_FILE = 'ggml-base.en.bin'
@@ -34,6 +34,10 @@ export interface MurmurSettings {
   readonly language: WhisperLanguage
   /** Append one space after the transcript so consecutive dictations flow. */
   readonly trailingSpace: boolean
+  /** Drop filler sounds such as "um" and "uh" from the transcript. */
+  readonly removeFillerWords: boolean
+  /** Turn spoken commands such as "period" or "new line" into real text. */
+  readonly spokenCommands: boolean
   /** Holds shorter than this are discarded as taps. */
   readonly minUtteranceMs: number
   /** Hard upper bound for one utterance. */
@@ -74,6 +78,8 @@ export const DEFAULT_SETTINGS: MurmurSettings = {
   modelPath: null,
   language: 'en',
   trailingSpace: true,
+  removeFillerWords: false,
+  spokenCommands: false,
   minUtteranceMs: 300,
   maxUtteranceMs: RECORDER_MAX_UTTERANCE_MS,
   threads: 0,
@@ -107,6 +113,8 @@ export function isMurmurSettings(value: unknown): value is MurmurSettings {
     (value['modelPath'] === null || typeof value['modelPath'] === 'string') &&
     WHISPER_LANGUAGES.some((language) => language === value['language']) &&
     typeof value['trailingSpace'] === 'boolean' &&
+    typeof value['removeFillerWords'] === 'boolean' &&
+    typeof value['spokenCommands'] === 'boolean' &&
     typeof value['minUtteranceMs'] === 'number' &&
     typeof value['maxUtteranceMs'] === 'number' &&
     typeof value['threads'] === 'number' &&
