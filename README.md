@@ -41,6 +41,10 @@ sentence, with technical detail in the log. Elevated or unknown-integrity
 targets now get a clipboard-only fallback instead of a blocked paste; see
 [Pasting into administrator apps](#pasting-into-administrator-apps).
 
+Phase 9 (installer) builds a per-user x64 NSIS installer. Installed-build
+dictation, a 0.1.0 → 0.1.1 upgrade, and uninstall behavior pass on the dev
+Windows 11 machine; clean-machine testing is still pending.
+
 ## Requirements
 
 - Windows 10 or 11, x64
@@ -56,13 +60,27 @@ npm run start     # preview the built app
 npm test          # unit tests for the insertion branch and probe parser
 npm run typecheck # typecheck the Node and web sides
 npm run lint      # ESLint
-npm run icon      # regenerate the placeholder tray icon
+npm run icon      # regenerate the Murmur logo, .png, and multi-size .ico
+npm run dist:win  # build the x64 NSIS installer into dist/
 ```
 
 The app writes `settings.json` to `%APPDATA%\Murmur\` on first run. A rotating
 log lives in `%APPDATA%\Murmur\logs\murmur.log` (2 MB per file, three backups).
 Transcript text is not logged by default; start with `MURMUR_DEBUG=1` to include
 it for troubleshooting.
+
+## Building the installer
+
+`npm run dist:win` typechecks, builds the bundles, and produces
+`dist\Murmur-Setup-<version>.exe`. The installer is x64 NSIS, installs per user
+(no administrator prompt), lets you choose the install folder, and creates Start
+Menu and desktop shortcuts. `resources\whisper`, `resources\models`, and
+`resources\icons` are bundled beside `app.asar`; `uiohook-napi`'s native binary
+is unpacked from the archive automatically.
+
+The uninstaller removes the program and shortcuts but leaves `%APPDATA%\Murmur`
+in place, so settings and logs survive an uninstall/reinstall. Clean-machine
+testing is still pending; see `AGENTS.md` phase 9.
 
 ## Pasting into administrator apps
 

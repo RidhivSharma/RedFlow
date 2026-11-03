@@ -1,6 +1,7 @@
 /**
- * Generates Murmur's placeholder icon: a teal rounded square with a white
- * audio waveform. No image library is used; the PNG entries and the ICO
+ * Generates Murmur's app icon: a teal rounded square with a white audio
+ * waveform. The same multi-size .ico is used for the tray, windows, executable,
+ * and NSIS installer. No image library is used; the PNG entries and the ICO
  * container are encoded by hand so the asset stays reproducible.
  *
  * Run with `npm run icon`.

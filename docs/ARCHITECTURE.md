@@ -307,7 +307,20 @@ The primary key down starts dictation only when every listed modifier is held. D
 
 A single path helper (`getResourcePath(...)` in `src/main/app/paths.ts`) tests `app.isPackaged` so dev and installed behavior stay aligned; nothing hardcodes a drive or repo path.
 
-The exact installed path (per-user install is the default) is confirmed when the installer config is built in phase 9.
+`electron-builder.yml` (phase 9) packages this layout. The installer is an
+assisted x64 NSIS build, not a one-click installer: it installs per user under
+`%LOCALAPPDATA%\Programs\Murmur` by default (no elevation), lets the user change
+the folder, and creates Start Menu and desktop shortcuts. The output artifact is
+`dist\Murmur-Setup-<version>.exe`.
+
+- `app.asar` contains only `out/**` and `package.json`.
+- `uiohook-napi` is listed in `asarUnpack`, so its prebuilt `win32-x64` `.node`
+  and supporting files live in `app.asar.unpacked` and load normally.
+- `resources/whisper`, `resources/models`, and `resources/icons` are copied by
+  `extraResources` to `<install>\resources\whisper`, `...\models`, and
+  `...\icons`, which is exactly what `process.resourcesPath` resolves to.
+- The uninstaller removes the program and shortcuts but keeps
+  `%APPDATA%\Murmur` (settings and logs) unless the user deletes it manually.
 
 ---
 
