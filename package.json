@@ -21,6 +21,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "icon": "node scripts/generate-icon.mjs",
+    "hero": "node scripts/generate-hero.mjs",
     "dist:win": "npm run build && electron-builder --win --x64",
     "postinstall": "install-electron"
   },

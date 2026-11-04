@@ -10,27 +10,45 @@ build/
 
 # Tooling caches
 .eslintcache
+.stylelintcache
 .vite/
+.cache/
+.turbo/
+.history/
 coverage/
+playwright-report/
+test-results/
 
 # Logs and local runtime files
 *.log*
 logs/
 
+# Local test captures and scratch files
+*.wav
+*.webm
+*.tmp
+*.orig
+*.rej
+*.bak
+
 # Downloaded Whisper binaries and models are never committed (phase 4).
 resources/whisper/
 resources/models/
+
+# Secrets and signing material - never commit these
+.env
+.env.*
+!.env.example
+*.local
+*.pfx
+*.p12
+*.pem
+*.key
 
 # Local release artifacts
 *.blockmap
 *.nsis.7z
 builder-effective-config.yaml
-
-# Environment and local overrides
-.env
-.env.*
-!.env.example
-*.local
 
 # OS metadata
 .DS_Store

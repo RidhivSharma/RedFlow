@@ -4,7 +4,7 @@
 
 This file is the working agreement for anyone (human or AI agent) writing code in this repo. Read it together with [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) before changing anything.
 
-> Naming note: the repo folder is `D:\sde\RedFlow`, but the product name is **Murmur**. Use `Murmur` for `productName`, window titles, the tray tooltip, and the settings folder name. Do not rename the repo folder.
+> Naming note: the repository folder may be named `RedFlow`, but the product name is **Murmur**. Use `Murmur` for `productName`, window titles, the tray tooltip, and the settings folder name. Do not rename the repository folder.
 
 ---
 
