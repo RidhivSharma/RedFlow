@@ -41,9 +41,9 @@ sentence, with technical detail in the log. Elevated or unknown-integrity
 targets now get a clipboard-only fallback instead of a blocked paste; see
 [Pasting into administrator apps](#pasting-into-administrator-apps).
 
-Phase 9 (installer) builds a per-user x64 NSIS installer. Installed-build
-dictation, a 0.1.0 → 0.1.1 upgrade, and uninstall behavior pass on the dev
-Windows 11 machine; clean-machine testing is still pending.
+Phase 9 (installer) is complete: the per-user x64 NSIS installer was tested
+from an installer-only folder (install, dictation, uninstall), and a
+0.1.0 → 0.1.1 upgrade preserves settings.
 
 ## Requirements
 
@@ -79,8 +79,8 @@ Menu and desktop shortcuts. `resources\whisper`, `resources\models`, and
 is unpacked from the archive automatically.
 
 The uninstaller removes the program and shortcuts but leaves `%APPDATA%\Murmur`
-in place, so settings and logs survive an uninstall/reinstall. Clean-machine
-testing is still pending; see `AGENTS.md` phase 9.
+in place, so settings and logs survive an uninstall/reinstall. See `AGENTS.md`
+phase 9 for the tested scenarios and the clean-machine caveat.
 
 ## Pasting into administrator apps
 
