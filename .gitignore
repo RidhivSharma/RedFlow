@@ -1,12 +1,42 @@
-node_modules
-out
-dist
-build
-.test-build
-.DS_Store
-.eslintcache
-*.log*
+# Dependencies
+node_modules/
 
-# Whisper binaries and models are downloaded, never committed (phase 4).
+# Build output (electron-vite / electron-builder / tests)
+out/
+dist/
+build/
+.test-build/
+*.tsbuildinfo
+
+# Tooling caches
+.eslintcache
+.vite/
+coverage/
+
+# Logs and local runtime files
+*.log*
+logs/
+
+# Downloaded Whisper binaries and models are never committed (phase 4).
 resources/whisper/
 resources/models/
+
+# Local release artifacts
+*.blockmap
+*.nsis.7z
+builder-effective-config.yaml
+
+# Environment and local overrides
+.env
+.env.*
+!.env.example
+*.local
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors
+.idea/
+.vscode/

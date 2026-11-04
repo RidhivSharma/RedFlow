@@ -111,7 +111,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 7 | Settings window + JSON store | ✓ done |
 | 8 | Quality & reliability | ◐ in progress |
 | 9 | Installer (NSIS) | ✓ done |
-| 10 | Release | ☐ not started |
+| 10 | Release | ◐ in progress |
 
 ### Phase 1 — Scaffold + tray
 - [x] electron-vite scaffold with strict TypeScript; React renderer compiles; ESLint clean.
@@ -212,10 +212,16 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 
 ### Phase 10 — Release
 - [ ] Version bump, changelog, git tag; GitHub Release with the installer + checksum file.
-- [ ] README finalized: install steps, build from source, model download, troubleshooting (mic privacy, hotkey conflicts, admin apps).
-- [ ] License (MIT) + third-party notices (whisper.cpp, uiohook, Electron).
+- [x] README finalized: install steps, build from source, model download, troubleshooting (mic privacy, hotkey conflicts, admin apps).
+- [x] License (MIT) + third-party notices (whisper.cpp, uiohook, Electron).
 - [ ] Documented policy for settings migrations between versions.
 - **Done when:** a person with no dev tools can download, install, and use Murmur from the release page.
+
+> Phase 10 status: **in progress.** `README.md` now covers install, usage,
+> SmartScreen, privacy, troubleshooting, and building from source; `LICENSE`
+> (MIT) and `THIRD_PARTY_NOTICES.md` are in place. Remaining before release:
+> version bump, changelog, tag, GitHub Release with the installer + checksum,
+> and the documented settings-migration policy.
 
 ---
 
