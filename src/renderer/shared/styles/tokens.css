@@ -70,6 +70,12 @@
   --rf-space-7: 32px;
   --rf-space-8: 40px;
 
+  /* Layout sizes */
+  --rf-size-sidebar: 232px;
+  --rf-size-sidebar-rail: 68px;
+  --rf-size-content-max: 680px;
+  --rf-size-brand-mark: 32px;
+
   /* Radii */
   --rf-radius-xs: 4px;
   --rf-radius-sm: 6px;

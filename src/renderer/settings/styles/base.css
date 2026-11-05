@@ -46,6 +46,10 @@ textarea {
   outline-offset: var(--rf-focus-offset);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 /* Themed thin scrollbar (Chromium only; the settings window runs in Electron). */
 ::-webkit-scrollbar {
   width: 10px;

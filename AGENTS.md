@@ -115,7 +115,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 0.1 | UI: audit + contract | ✓ done |
 | 0.2 | UI: rebrand to Redflow | ◐ awaiting owner check |
 | 0.3 | UI: design system foundation | ◐ awaiting owner check |
-| 0.4 | UI: app shell (sidebar + sections) | ☐ not started |
+| 0.4 | UI: app shell (sidebar + sections) | ◐ awaiting owner check |
 | 0.5 | UI: core controls | ☐ not started |
 | 0.6 | UI: section polish + motion | ☐ not started |
 | 0.7 | UI: overlay alignment (optional) | ☐ not started |
@@ -344,11 +344,11 @@ Component specs:
 - **Done when:** the window renders in the graphite theme and all behavior is unchanged.
 
 ### Phase 0.4 — App shell
-- [ ] Sidebar + content pane per the Layout spec, with brand block, five nav items, bottom version block, and the red glow behind the brand.
-- [ ] Navigation as a vertical tablist: `role="tablist"` with `aria-orientation="vertical"`, items `role="tab"` with `aria-selected` and `aria-controls`, roving `tabIndex`, ArrowUp/ArrowDown/Home/End move and activate, panels `role="tabpanel"` with `aria-labelledby`. Active section is in-memory React state only (default Dictation). All panels stay mounted (U3).
-- [ ] Section header (title + description) per section; System section holds Start with Windows; rows follow the Row spec, which fixes the squeezed-label bug.
-- [ ] Icon-only rail below 820 px.
-- [ ] `docs/ARCHITECTURE.md` settings renderer structure updated.
+- [x] Sidebar + content pane per the Layout spec, with brand block, five nav items, bottom version block, and the red glow behind the brand.
+- [x] Navigation as a vertical tablist: `role="tablist"` with `aria-orientation="vertical"`, items `role="tab"` with `aria-selected` and `aria-controls`, roving `tabIndex`, ArrowUp/ArrowDown/Home/End move and activate, panels `role="tabpanel"` with `aria-labelledby`. Active section is in-memory React state only (default Dictation). All panels stay mounted (U3).
+- [x] Section header (title + description) per section; System section holds Start with Windows; rows follow the Row spec, which fixes the squeezed-label bug.
+- [x] Icon-only rail below 820 px.
+- [x] `docs/ARCHITECTURE.md` settings renderer structure updated.
 - **Owner to verify:** every control still works in all five sections; switching sections mid hotkey-capture or mid mic-test does not break either; window resize to minimum size looks right.
 - **Done when:** the five sections switch with mouse and keyboard and no logic changed.
 

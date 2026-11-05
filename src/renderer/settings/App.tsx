@@ -2,40 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HotkeyBinding } from '@shared/hotkey'
 import type { AppInfo, MicrophoneDevice, SettingsSnapshot } from '@shared/ipc'
 import type { MurmurSettings, SettingsPatch } from '@shared/settings'
-import logoUrl from './assets/redflow-logo.png'
-import HotkeyPicker from './components/HotkeyPicker'
-import LevelMeter from './components/LevelMeter'
-import Toggle from './components/Toggle'
-
-interface ModelChoice {
-  readonly file: string
-  readonly sizeBytes: number | null
-}
+import Sidebar from './components/Sidebar'
+import SettingsStatus from './components/SettingsStatus'
+import CleanupSection from './components/sections/CleanupSection'
+import DictationSection from './components/sections/DictationSection'
+import MicrophoneSection from './components/sections/MicrophoneSection'
+import ModelSection from './components/sections/ModelSection'
+import SystemSection from './components/sections/SystemSection'
+import { modelChoicesFor } from './settingsModels'
+import type { SectionId } from './sections'
 
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${Math.round(bytes / (1024 * 1024))} MB`
-  }
-  return `${Math.round(bytes / 1024)} KB`
-}
-
-function modelChoicesFor(snapshot: SettingsSnapshot): ModelChoice[] {
-  const choices: ModelChoice[] = snapshot.models.map((model) => ({
-    file: model.file,
-    sizeBytes: model.sizeBytes
-  }))
-  const selected = snapshot.settings.modelPath ?? snapshot.defaultModelFile
-  if (!choices.some((choice) => choice.file === selected)) {
-    choices.unshift({ file: selected, sizeBytes: null })
-  }
-  return choices
 }
 
 function App(): React.JSX.Element {
@@ -48,6 +26,7 @@ function App(): React.JSX.Element {
   const [capturing, setCapturing] = useState(false)
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
+  const [activeSection, setActiveSection] = useState<SectionId>('dictation')
   const noticeTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -196,21 +175,19 @@ function App(): React.JSX.Element {
 
   if (snapshot === null) {
     return (
-      <div className="app">
-        <header className="masthead">
-          <img className="mark" src={logoUrl} alt="" />
-          <div>
-            <p className="eyebrow">Redflow</p>
-            <h1>Settings</h1>
-          </div>
-        </header>
+      <div className="app-shell">
+        <Sidebar activeSection={activeSection} onSelect={setActiveSection} appInfo={appInfo} />
 
-        <main className="panel">
-          {error !== null ? (
-            <p className="status-error">Could not load settings: {error}</p>
-          ) : (
-            <p>Loading settings…</p>
-          )}
+        <main className="content-pane">
+          <div className="content">
+            <div className="panel">
+              {error !== null ? (
+                <p className="status-error">Could not load settings: {error}</p>
+              ) : (
+                <p>Loading settings…</p>
+              )}
+            </div>
+          </div>
         </main>
       </div>
     )
@@ -229,232 +206,79 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app">
-      <header className="masthead">
-        <img className="mark" src={logoUrl} alt="" />
-        <div>
-          <p className="eyebrow">Redflow</p>
-          <h1>Settings</h1>
-        </div>
-      </header>
+    <div className="app-shell">
+      <Sidebar activeSection={activeSection} onSelect={setActiveSection} appInfo={appInfo} />
 
-      <main className="settings">
-        <section className="card">
-          <div className="card-heading">
-            <h2>Dictation</h2>
-            <p>How Redflow listens and inserts text.</p>
-          </div>
-
-          <div className="setting-row">
-            <div className="setting-copy">
-              <span className="setting-label">Push-to-talk hotkey</span>
-              <span className="setting-hint">
-                Hold this key anywhere in Windows, speak, then release.
-              </span>
-            </div>
-            <HotkeyPicker
-              binding={hotkeyBinding}
-              capturing={capturing}
-              disabled={saving}
-              onStartCapture={handleStartCapture}
-              onCancelCapture={handleCancelCapture}
-            />
-          </div>
-
-          <Toggle
-            label="Trailing space"
-            description="Add one space after each transcript so back-to-back dictations do not run together."
-            checked={settings.trailingSpace}
-            onChange={(checked) => {
+      <main className="content-pane">
+        <div className="content">
+          <DictationSection
+            hidden={activeSection !== 'dictation'}
+            hotkeyBinding={hotkeyBinding}
+            capturing={capturing}
+            saving={saving}
+            trailingSpace={settings.trailingSpace}
+            onStartCapture={handleStartCapture}
+            onCancelCapture={handleCancelCapture}
+            onTrailingSpaceChange={(checked) => {
               void applyPatch({ trailingSpace: checked })
             }}
           />
-        </section>
 
-        <section className="card">
-          <div className="card-heading">
-            <h2>Text cleanup</h2>
-            <p>Shape the transcript before Redflow pastes it.</p>
-          </div>
-
-          <Toggle
-            label="Remove filler words"
-            description="Drop sounds such as “um” and “uh”, including their longer spellings."
-            checked={settings.removeFillerWords}
+          <CleanupSection
+            hidden={activeSection !== 'cleanup'}
+            removeFillerWords={settings.removeFillerWords}
+            spokenCommands={settings.spokenCommands}
             disabled={capturing}
-            onChange={(checked) => {
+            onRemoveFillerWordsChange={(checked) => {
               void applyPatch({ removeFillerWords: checked })
             }}
-          />
-
-          <Toggle
-            label="Spoken commands"
-            description="Turn “new line”, “new paragraph”, “period”, “comma”, and “question mark” into punctuation and line breaks."
-            checked={settings.spokenCommands}
-            disabled={capturing}
-            onChange={(checked) => {
+            onSpokenCommandsChange={(checked) => {
               void applyPatch({ spokenCommands: checked })
             }}
           />
-        </section>
 
-        <section className="card">
-          <div className="card-heading">
-            <h2>Microphone</h2>
-            <p>The input Redflow keeps warm between utterances.</p>
-          </div>
+          <MicrophoneSection
+            hidden={activeSection !== 'microphone'}
+            microphones={microphones}
+            selectedMicrophone={selectedMicrophone}
+            microphoneMissing={microphoneMissing}
+            capturing={capturing}
+            testing={testing}
+            level={level}
+            onMicrophoneChange={(value) => {
+              void applyPatch({ microphoneId: value === '' ? null : value })
+            }}
+            onTestMicrophone={handleTestMicrophone}
+          />
 
-          <div className="setting-row">
-            <label className="setting-copy" htmlFor="microphone">
-              <span className="setting-label">Input device</span>
-              <span className="setting-hint">
-                System default follows the device Windows currently uses.
-              </span>
-            </label>
-            <select
-              id="microphone"
-              className="select"
-              value={selectedMicrophone}
-              disabled={capturing}
-              onChange={(event) => {
-                const value = event.target.value
-                void applyPatch({ microphoneId: value === '' ? null : value })
-              }}
-            >
-              <option value="">System default</option>
-              {microphoneMissing ? (
-                <option value={selectedMicrophone}>Selected microphone (not detected)</option>
-              ) : null}
-              {microphones.map((device) => (
-                <option key={device.deviceId} value={device.deviceId}>
-                  {device.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <ModelSection
+            hidden={activeSection !== 'model'}
+            modelChoices={modelChoices}
+            selectedModel={selectedModel}
+            language={settings.language}
+            capturing={capturing}
+            onModelChange={(value) => {
+              void applyPatch({
+                modelPath: value === snapshot.defaultModelFile ? null : value
+              })
+            }}
+            onLanguageChange={(value) => {
+              void applyPatch({ language: value === 'auto' ? 'auto' : 'en' })
+            }}
+          />
 
-          <div className="setting-row test-row">
-            <div className="setting-copy">
-              <span className="setting-label">Test microphone</span>
-              <span className="setting-hint">
-                Speak normally and watch the meter. Changes to the input device apply immediately.
-              </span>
-            </div>
-            <div className="test-controls">
-              <button
-                type="button"
-                className={`button${testing ? ' button-active' : ''}`}
-                onClick={handleTestMicrophone}
-                disabled={capturing}
-              >
-                {testing ? 'Stop test' : 'Test microphone'}
-              </button>
-              <LevelMeter level={level} active={testing} />
-              <span className="test-caption">
-                {testing
-                  ? 'Listening…'
-                  : microphones.length === 0
-                    ? 'No microphones found'
-                    : 'Idle'}
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="card-heading">
-            <h2>Model &amp; language</h2>
-            <p>Whisper runs locally on this machine.</p>
-          </div>
-
-          <div className="setting-row">
-            <label className="setting-copy" htmlFor="model">
-              <span className="setting-label">Whisper model</span>
-              <span className="setting-hint">
-                The `.bin` files found in Redflow&rsquo;s models folder.
-              </span>
-            </label>
-            <select
-              id="model"
-              className="select"
-              value={selectedModel}
-              disabled={capturing || modelChoices.length === 0}
-              onChange={(event) => {
-                const value = event.target.value
-                void applyPatch({
-                  modelPath: value === snapshot.defaultModelFile ? null : value
-                })
-              }}
-            >
-              {modelChoices.map((choice) => (
-                <option key={choice.file} value={choice.file}>
-                  {choice.file}
-                  {choice.sizeBytes === null
-                    ? ' (not found)'
-                    : ` — ${formatBytes(choice.sizeBytes)}`}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="setting-row">
-            <label className="setting-copy" htmlFor="language">
-              <span className="setting-label">Language</span>
-              <span className="setting-hint">
-                Auto-detect works best with a multilingual model.
-              </span>
-            </label>
-            <select
-              id="language"
-              className="select"
-              value={settings.language}
-              disabled={capturing}
-              onChange={(event) => {
-                const language = event.target.value
-                void applyPatch({ language: language === 'auto' ? 'auto' : 'en' })
-              }}
-            >
-              <option value="en">English</option>
-              <option value="auto">Auto-detect</option>
-            </select>
-          </div>
-
-          {settings.language === 'auto' ? (
-            <p className="note">
-              The bundled base.en model is English-only. Pick a multilingual model above to
-              transcribe other languages.
-            </p>
-          ) : null}
-        </section>
-
-        <section className="card compact">
-          <Toggle
-            label="Start with Windows"
-            description="Launch Redflow quietly in the system tray when you sign in."
-            checked={settings.autostart}
+          <SystemSection
+            hidden={activeSection !== 'system'}
+            autostart={settings.autostart}
             disabled={capturing}
-            onChange={(checked) => {
+            onAutostartChange={(checked) => {
               void applyPatch({ autostart: checked })
             }}
           />
-        </section>
-      </main>
 
-      <footer className="status" aria-live="polite">
-        {error !== null ? (
-          <span className="status-error">{error}</span>
-        ) : notice !== null ? (
-          <span className="status-ok">{notice}</span>
-        ) : saving ? (
-          <span>Saving…</span>
-        ) : appInfo !== null ? (
-          <span>
-            Redflow {appInfo.version} · Electron {appInfo.electronVersion} · Changes apply instantly
-          </span>
-        ) : (
-          <span />
-        )}
-      </footer>
+          <SettingsStatus error={error} notice={notice} saving={saving} />
+        </div>
+      </main>
     </div>
   )
 }
