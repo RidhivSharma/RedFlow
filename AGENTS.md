@@ -114,7 +114,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 10 | Release | ◐ in progress |
 | 0.1 | UI: audit + contract | ✓ done |
 | 0.2 | UI: rebrand to Redflow | ◐ awaiting owner check |
-| 0.3 | UI: design system foundation | ☐ not started |
+| 0.3 | UI: design system foundation | ◐ awaiting owner check |
 | 0.4 | UI: app shell (sidebar + sections) | ☐ not started |
 | 0.5 | UI: core controls | ☐ not started |
 | 0.6 | UI: section polish + motion | ☐ not started |
@@ -337,9 +337,9 @@ Component specs:
 - **Done when:** `grep -ri murmur` outside README, AGENTS.md history, docs and the legacy list finds nothing, and the owner checks pass.
 
 ### Phase 0.3 — Design system foundation
-- [ ] Create `tokens.css` (all tokens above), `base.css` (reset, `color-scheme: dark`, system font stack, themed thin scrollbar, selection color, global `:focus-visible` ring, `prefers-reduced-motion` rules) and import them in the settings entry.
-- [ ] Apply the settings window options from the Layout spec (size, min size, `backgroundColor`, `autoHideMenuBar`, `title`).
-- [ ] Replace the old teal/navy theme with the new tokens in all settings styles. The current layout may stay for now; everything must still function.
+- [x] Create `tokens.css` (all tokens above), `base.css` (reset, `color-scheme: dark`, system font stack, themed thin scrollbar, selection color, global `:focus-visible` ring, `prefers-reduced-motion` rules) and import them in the settings entry.
+- [x] Apply the settings window options from the Layout spec (size, min size, `backgroundColor`, `autoHideMenuBar`, `title`).
+- [x] Replace the old teal/navy theme with the new tokens in all settings styles. The current layout may stay for now; everything must still function.
 - **Owner to verify:** no white flash on open, no teal remains, every control still works.
 - **Done when:** the window renders in the graphite theme and all behavior is unchanged.
 
