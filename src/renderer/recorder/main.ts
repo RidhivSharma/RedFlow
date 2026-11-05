@@ -124,7 +124,7 @@ function describeCaptureError(error: unknown): { code: CaptureErrorCode; message
           code: 'no-device',
           message:
             preferredDeviceId === null
-              ? 'The microphone does not support the audio format Murmur needs.'
+              ? 'The microphone does not support the audio format Redflow needs.'
               : 'The selected microphone is unavailable. Choose another microphone in Settings.'
         }
       default:
@@ -326,7 +326,7 @@ async function createPipeline(): Promise<CapturePipeline> {
       console.error('[murmur recorder] audio worklet failed to load', error)
       throw new CaptureSetupError(
         'capture-failed',
-        'The audio capture component could not start. Restart Murmur and try again.'
+        'The audio capture component could not start. Restart Redflow and try again.'
       )
     } finally {
       URL.revokeObjectURL(workletUrl)

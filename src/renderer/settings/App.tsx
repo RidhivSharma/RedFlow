@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HotkeyBinding } from '@shared/hotkey'
 import type { AppInfo, MicrophoneDevice, SettingsSnapshot } from '@shared/ipc'
 import type { MurmurSettings, SettingsPatch } from '@shared/settings'
+import logoUrl from './assets/redflow-logo.png'
 import HotkeyPicker from './components/HotkeyPicker'
 import LevelMeter from './components/LevelMeter'
 import Toggle from './components/Toggle'
@@ -197,15 +198,9 @@ function App(): React.JSX.Element {
     return (
       <div className="app">
         <header className="masthead">
-          <div className="mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
+          <img className="mark" src={logoUrl} alt="" />
           <div>
-            <p className="eyebrow">Murmur</p>
+            <p className="eyebrow">Redflow</p>
             <h1>Settings</h1>
           </div>
         </header>
@@ -236,15 +231,9 @@ function App(): React.JSX.Element {
   return (
     <div className="app">
       <header className="masthead">
-        <div className="mark" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
+        <img className="mark" src={logoUrl} alt="" />
         <div>
-          <p className="eyebrow">Murmur</p>
+          <p className="eyebrow">Redflow</p>
           <h1>Settings</h1>
         </div>
       </header>
@@ -253,7 +242,7 @@ function App(): React.JSX.Element {
         <section className="card">
           <div className="card-heading">
             <h2>Dictation</h2>
-            <p>How Murmur listens and inserts text.</p>
+            <p>How Redflow listens and inserts text.</p>
           </div>
 
           <div className="setting-row">
@@ -285,7 +274,7 @@ function App(): React.JSX.Element {
         <section className="card">
           <div className="card-heading">
             <h2>Text cleanup</h2>
-            <p>Shape the transcript before Murmur pastes it.</p>
+            <p>Shape the transcript before Redflow pastes it.</p>
           </div>
 
           <Toggle
@@ -312,7 +301,7 @@ function App(): React.JSX.Element {
         <section className="card">
           <div className="card-heading">
             <h2>Microphone</h2>
-            <p>The input Murmur keeps warm between utterances.</p>
+            <p>The input Redflow keeps warm between utterances.</p>
           </div>
 
           <div className="setting-row">
@@ -382,7 +371,7 @@ function App(): React.JSX.Element {
             <label className="setting-copy" htmlFor="model">
               <span className="setting-label">Whisper model</span>
               <span className="setting-hint">
-                The `.bin` files found in Murmur&rsquo;s models folder.
+                The `.bin` files found in Redflow&rsquo;s models folder.
               </span>
             </label>
             <select
@@ -441,7 +430,7 @@ function App(): React.JSX.Element {
         <section className="card compact">
           <Toggle
             label="Start with Windows"
-            description="Launch Murmur quietly in the system tray when you sign in."
+            description="Launch Redflow quietly in the system tray when you sign in."
             checked={settings.autostart}
             disabled={capturing}
             onChange={(checked) => {
@@ -460,7 +449,7 @@ function App(): React.JSX.Element {
           <span>Saving…</span>
         ) : appInfo !== null ? (
           <span>
-            Murmur {appInfo.version} · Electron {appInfo.electronVersion} · Changes apply instantly
+            Redflow {appInfo.version} · Electron {appInfo.electronVersion} · Changes apply instantly
           </span>
         ) : (
           <span />

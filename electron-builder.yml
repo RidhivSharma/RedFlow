@@ -1,5 +1,5 @@
 appId: dev.murmur.app
-productName: Murmur
+productName: Redflow
 copyright: Copyright © 2026 Murmur contributors
 
 directories:
@@ -48,8 +48,10 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: resources/icons/murmur.ico
-  artifactName: Murmur-Setup-${version}.${ext}
+  # The supplied .ico is below electron-builder's 256 px minimum, so the
+  # high-resolution owner logo is converted for the executable icon instead.
+  icon: resources/icons/RedFlow-logo.png
+  artifactName: Redflow-Setup-${version}.${ext}
 
 nsis:
   oneClick: false
@@ -58,11 +60,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Murmur
-  uninstallDisplayName: Murmur ${version}
-  installerIcon: resources/icons/murmur.ico
-  uninstallerIcon: resources/icons/murmur.ico
-  installerHeaderIcon: resources/icons/murmur.ico
+  shortcutName: Redflow
+  uninstallDisplayName: Redflow ${version}
+  installerIcon: resources/icons/RedFlow-logo.ico
+  uninstallerIcon: resources/icons/RedFlow-logo.ico
+  installerHeaderIcon: resources/icons/RedFlow-logo.ico
   # Keep %APPDATA%\Murmur (settings.json + logs) when the app is uninstalled.
   # Reinstalling or upgrading then leaves the user's configuration intact.
   deleteAppDataOnUninstall: false

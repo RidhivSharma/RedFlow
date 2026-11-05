@@ -113,7 +113,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 9 | Installer (NSIS) | ✓ done |
 | 10 | Release | ◐ in progress |
 | 0.1 | UI: audit + contract | ✓ done |
-| 0.2 | UI: rebrand to Redflow | ☐ not started |
+| 0.2 | UI: rebrand to Redflow | ◐ awaiting owner check |
 | 0.3 | UI: design system foundation | ☐ not started |
 | 0.4 | UI: app shell (sidebar + sections) | ☐ not started |
 | 0.5 | UI: core controls | ☐ not started |
@@ -328,11 +328,11 @@ Component specs:
 - **Done when:** the contract exists and `git diff` shows only `docs/UI_CONTRACT.md` and AGENTS.md.
 
 ### Phase 0.2 — Rebrand to Redflow
-- [ ] All visible "Murmur" strings changed to "Redflow" per "Naming (Redflow)"; legacy identifiers untouched.
-- [ ] `electron-builder.yml`: `productName` Redflow, shortcut names, `artifactName` `Redflow-Setup-${version}.exe`; `appId` unchanged; `package.json` `name`/`productName` unchanged.
-- [ ] Owner-supplied `resources/icons/redflow.ico` replaces every reference to `murmur.ico` (tray, windows, installer); the old file is deleted only after `npm run build` passes with the new references. The owner-supplied logo (`resources/icons/redflow-logo.png` or `.svg`) replaces the logo in the settings header.
-- [ ] No `app.setName` / `app.setPath('userData')` added.
-- [ ] `npm run dist:win` succeeds and produces `Redflow-Setup-<version>.exe`.
+- [x] All visible "Murmur" strings changed to "Redflow" per "Naming (Redflow)"; legacy identifiers untouched.
+- [x] `electron-builder.yml`: `productName` Redflow, shortcut names, `artifactName` `Redflow-Setup-${version}.exe`; `appId` unchanged; `package.json` `name`/`productName` unchanged.
+- [x] Owner-supplied `resources/icons/redflow.ico` replaces every reference to `murmur.ico` (tray, windows, installer); the old file is deleted only after `npm run build` passes with the new references. The owner-supplied logo (`resources/icons/redflow-logo.png` or `.svg`) replaces the logo in the settings header.
+- [x] No `app.setName` / `app.setPath('userData')` added.
+- [x] `npm run dist:win` succeeds and produces `Redflow-Setup-<version>.exe`.
 - **Owner to verify:** tray icon/tooltip and settings title say Redflow; installing over an existing Murmur build keeps the settings; after changing a setting, `%APPDATA%\Murmur\settings.json` updates and no `%APPDATA%\Redflow` folder appears.
 - **Done when:** `grep -ri murmur` outside README, AGENTS.md history, docs and the legacy list finds nothing, and the owner checks pass.
 

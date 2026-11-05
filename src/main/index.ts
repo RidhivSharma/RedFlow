@@ -25,7 +25,7 @@ let activeSettings: SettingsController | null = null
 function reportStartupError(message: string, error: unknown): void {
   console.error(`[murmur] ${message}`, error)
   dialog.showErrorBox(
-    'Murmur',
+    'Redflow',
     `${message}\n\n${error instanceof Error ? error.message : String(error)}`
   )
 }
@@ -37,7 +37,7 @@ async function startApp(): Promise<void> {
   try {
     await initializeSettings()
   } catch (error) {
-    reportStartupError('Could not load Murmur settings.', error)
+    reportStartupError('Could not load Redflow settings.', error)
     app.quit()
     return
   }
@@ -67,7 +67,7 @@ async function startApp(): Promise<void> {
       onQuit: () => app.quit()
     })
   } catch (error) {
-    reportStartupError('Could not create the Murmur tray icon.', error)
+    reportStartupError('Could not create the Redflow tray icon.', error)
     app.quit()
     return
   }
@@ -159,7 +159,7 @@ function bootstrap(): void {
       await startApp()
     })
     .catch((error: unknown) => {
-      reportStartupError('Murmur failed to start.', error)
+      reportStartupError('Redflow failed to start.', error)
       app.quit()
     })
 }

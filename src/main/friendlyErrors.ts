@@ -12,36 +12,37 @@ export const NO_SPEECH_MESSAGE =
 const CAPTURE_MESSAGES: Readonly<Record<CaptureErrorCode, string>> = {
   'permission-denied':
     'Microphone access is blocked. Allow desktop apps in Windows Settings > Privacy & security > Microphone.',
-  'no-device': 'No microphone was found. Connect one, or choose another input in Murmur Settings.',
+  'no-device': 'No microphone was found. Connect one, or choose another input in Redflow Settings.',
   'device-busy':
-    'The microphone is in use by another app. Close it, or choose another input in Murmur Settings.',
+    'The microphone is in use by another app. Close it, or choose another input in Redflow Settings.',
   'capture-failed':
     'The microphone could not start. Check Windows microphone privacy, then try again.',
   'no-audio': 'No audio was captured. Check the microphone and Windows privacy settings.',
-  unknown: 'The microphone ran into a problem. Try again, or restart Murmur.'
+  unknown: 'The microphone ran into a problem. Try again, or restart Redflow.'
 }
 
 const TRANSCRIPTION_MESSAGES: Readonly<Record<TranscriptionErrorCode, string>> = {
   'whisper-missing':
-    "Murmur's speech engine is missing. Reinstall Murmur or restore whisper-cli.exe.",
-  'model-missing': 'The Whisper model is missing. Reinstall Murmur or restore the model file.',
+    "Redflow's speech engine is missing. Reinstall Redflow or restore whisper-cli.exe.",
+  'model-missing': 'The Whisper model is missing. Reinstall Redflow or restore the model file.',
   'snapshot-failed': 'The recording could not be prepared. Try dictating again.',
-  'spawn-failed': 'The speech engine could not start. Restart Murmur and try again.',
-  timeout: 'Transcription took too long. Try a shorter utterance, or restart Murmur.',
-  'exit-failed': 'Transcription failed. Try again, and check the Murmur log if it keeps happening.',
+  'spawn-failed': 'The speech engine could not start. Restart Redflow and try again.',
+  timeout: 'Transcription took too long. Try a shorter utterance, or restart Redflow.',
+  'exit-failed':
+    'Transcription failed. Try again, and check the Redflow log if it keeps happening.',
   empty: 'No speech was recognized. Hold the key and speak clearly, then try again.',
-  cancelled: 'Dictation was cancelled because Murmur is shutting down.'
+  cancelled: 'Dictation was cancelled because Redflow is shutting down.'
 }
 
 const INSERTION_MESSAGES: Readonly<Record<InsertionErrorCode, string>> = {
   'empty-text': 'There was no text to insert. Try dictating again.',
-  'modifiers-held': 'Release the hotkey keys before Murmur pastes the text.',
-  'own-window-focused': "Murmur's own window has focus, so the text was not pasted.",
+  'modifiers-held': 'Release the hotkey keys before Redflow pastes the text.',
+  'own-window-focused': "Redflow's own window has focus, so the text was not pasted.",
   'clipboard-failed': 'The transcribed text could not be copied to the clipboard.',
   'paste-failed':
     'The text could not be pasted. Apps running as administrator can block simulated input.',
   'restore-failed': 'The text was inserted, but the previous clipboard could not be restored.',
-  cancelled: 'The text was not inserted because Murmur is shutting down.'
+  cancelled: 'The text was not inserted because Redflow is shutting down.'
 }
 
 export function friendlyCaptureError(code: CaptureErrorCode): string {
@@ -56,5 +57,5 @@ export function friendlyDictationError(error: unknown): string {
   if (error instanceof InsertionError) {
     return INSERTION_MESSAGES[error.code]
   }
-  return 'Dictation failed. Check the Murmur log for details.'
+  return 'Dictation failed. Check the Redflow log for details.'
 }

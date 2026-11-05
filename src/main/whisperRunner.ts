@@ -194,7 +194,7 @@ export function runWhisper(
       }
 
       if (cancelled) {
-        fail('cancelled', 'Transcription was cancelled because Murmur is shutting down.')
+        fail('cancelled', 'Transcription was cancelled because Redflow is shutting down.')
         return
       }
 

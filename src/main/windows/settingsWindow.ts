@@ -42,7 +42,7 @@ export function openSettingsWindow(): void {
   }
 
   const window = new BrowserWindow({
-    title: 'Murmur Settings',
+    title: 'Redflow Settings',
     width: 780,
     height: 680,
     minWidth: 560,
@@ -50,7 +50,7 @@ export function openSettingsWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0b1220',
-    icon: getResourcePath('icons', 'murmur.ico'),
+    icon: getResourcePath('icons', 'RedFlow-logo.ico'),
     webPreferences: {
       preload: join(__dirname, '../preload/settings.js'),
       contextIsolation: true,
