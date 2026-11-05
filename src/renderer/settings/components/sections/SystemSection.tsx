@@ -1,3 +1,4 @@
+import Card from '../Card'
 import SectionHeader from '../SectionHeader'
 import Toggle from '../Toggle'
 import { panelId, tabId } from '../../sections'
@@ -25,7 +26,7 @@ function SystemSection({
     >
       <SectionHeader title="System" description="How Redflow behaves with Windows." />
 
-      <div className="card">
+      <Card>
         <Toggle
           label="Start with Windows"
           description="Launch Redflow quietly in the system tray when you sign in."
@@ -33,7 +34,7 @@ function SystemSection({
           disabled={disabled}
           onChange={onAutostartChange}
         />
-      </div>
+      </Card>
     </section>
   )
 }

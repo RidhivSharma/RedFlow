@@ -116,7 +116,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 0.2 | UI: rebrand to Redflow | ◐ awaiting owner check |
 | 0.3 | UI: design system foundation | ◐ awaiting owner check |
 | 0.4 | UI: app shell (sidebar + sections) | ◐ awaiting owner check |
-| 0.5 | UI: core controls | ☐ not started |
+| 0.5 | UI: core controls | ◐ awaiting owner check |
 | 0.6 | UI: section polish + motion | ☐ not started |
 | 0.7 | UI: overlay alignment (optional) | ☐ not started |
 | 0.8 | UI: final QA | ☐ not started |
@@ -353,8 +353,8 @@ Component specs:
 - **Done when:** the five sections switch with mouse and keyboard and no logic changed.
 
 ### Phase 0.5 — Core controls
-- [ ] Switch, Select, Button (primary/secondary), Keycap (including capture state), SettingRow and Card components per the Component specs; all states (hover, active, focus-visible, disabled).
-- [ ] Section descriptions and helper texts replaced with the copy above.
+- [x] Switch, Select, Button (primary/secondary), Keycap (including capture state), SettingRow and Card components per the Component specs; all states (hover, active, focus-visible, disabled).
+- [x] Section descriptions and helper texts replaced with the copy above.
 - **Owner to verify:** toggles persist after restart; hotkey rebind still works (including Escape, Cancel and the 15 s timeout); dropdowns still change input device, model and language.
 - **Done when:** no control uses its old styling and behavior is identical.
 

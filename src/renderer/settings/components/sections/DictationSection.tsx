@@ -1,6 +1,8 @@
 import type { HotkeyBinding } from '@shared/hotkey'
+import Card from '../Card'
 import HotkeyPicker from '../HotkeyPicker'
 import SectionHeader from '../SectionHeader'
+import SettingRow from '../SettingRow'
 import Toggle from '../Toggle'
 import { panelId, tabId } from '../../sections'
 
@@ -33,16 +35,13 @@ function DictationSection({
       aria-labelledby={tabId('dictation')}
       hidden={hidden}
     >
-      <SectionHeader title="Dictation" description="How Redflow listens and inserts text." />
+      <SectionHeader title="Dictation" description="How Redflow listens and inserts your words." />
 
-      <div className="card">
-        <div className="setting-row">
-          <div className="setting-copy">
-            <span className="setting-label">Push-to-talk hotkey</span>
-            <span className="setting-hint">
-              Hold this key anywhere in Windows, speak, then release.
-            </span>
-          </div>
+      <Card>
+        <SettingRow
+          label="Push-to-talk hotkey"
+          description="Hold this key anywhere in Windows, speak, then release to insert your words."
+        >
           <HotkeyPicker
             binding={hotkeyBinding}
             capturing={capturing}
@@ -50,15 +49,15 @@ function DictationSection({
             onStartCapture={onStartCapture}
             onCancelCapture={onCancelCapture}
           />
-        </div>
+        </SettingRow>
 
         <Toggle
           label="Trailing space"
-          description="Add one space after each transcript so back-to-back dictations do not run together."
+          description="Adds one space after each dictation so back-to-back phrases don't run together."
           checked={trailingSpace}
           onChange={onTrailingSpaceChange}
         />
-      </div>
+      </Card>
     </section>
   )
 }

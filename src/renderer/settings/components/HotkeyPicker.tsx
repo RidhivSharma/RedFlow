@@ -1,4 +1,6 @@
 import type { HotkeyBinding } from '@shared/hotkey'
+import Button from './Button'
+import Keycap from './Keycap'
 
 interface HotkeyPickerProps {
   readonly binding: HotkeyBinding
@@ -54,24 +56,23 @@ function HotkeyPicker({
   return (
     <div className={`hotkey-picker${capturing ? ' is-capturing' : ''}`}>
       <div className="hotkey-keys" aria-live="polite">
-        {parts.map((part, index) => (
-          <span key={`${part}-${index}`} className="keycap">
-            {keyLabel(part)}
-          </span>
-        ))}
+        {capturing ? (
+          <span className="capture-prompt">Press a key…</span>
+        ) : (
+          parts.map((part, index) => <Keycap key={`${part}-${index}`}>{keyLabel(part)}</Keycap>)
+        )}
       </div>
 
       {capturing ? (
         <div className="capture-actions">
-          <span className="capture-hint">Press a key or combo…</span>
-          <button type="button" className="button button-ghost" onClick={onCancelCapture}>
+          <Button variant="ghost" onClick={onCancelCapture}>
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
-        <button type="button" className="button" onClick={onStartCapture} disabled={disabled}>
+        <Button onClick={onStartCapture} disabled={disabled}>
           Change
-        </button>
+        </Button>
       )}
     </div>
   )

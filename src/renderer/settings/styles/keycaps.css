@@ -1,0 +1,77 @@
+/* Hotkey display: keycaps, capture prompt, and the pulsing capture ring. */
+
+.hotkey-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--rf-space-2) var(--rf-space-3);
+  min-width: 0;
+}
+
+.hotkey-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rf-space-1);
+  min-height: var(--rf-space-8);
+  padding: var(--rf-space-xs);
+  border: 1px solid var(--rf-color-border-subtle);
+  border-radius: var(--rf-radius-md);
+  background-color: var(--rf-color-bg);
+  transition:
+    background-color var(--rf-duration-fast) var(--rf-ease),
+    border-color var(--rf-duration-fast) var(--rf-ease),
+    box-shadow var(--rf-duration-fast) var(--rf-ease);
+}
+
+.is-capturing .hotkey-keys {
+  border-color: var(--rf-color-accent-border);
+  background-color: var(--rf-color-accent-soft);
+  animation: capture-ring var(--rf-pulse-duration) var(--rf-pulse-ease) infinite;
+}
+
+@keyframes capture-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--rf-color-accent-soft);
+  }
+
+  50% {
+    box-shadow: var(--rf-shadow-capture);
+  }
+}
+
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--rf-space-7);
+  min-height: var(--rf-space-7);
+  padding: 0 calc(var(--rf-space-2) + var(--rf-space-2xs));
+  border: 1px solid var(--rf-color-border);
+  border-bottom: 2px solid var(--rf-color-bg-sidebar);
+  border-radius: var(--rf-radius-sm);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text);
+  font-family: var(--rf-font-mono);
+  font-size: var(--rf-text-13);
+  font-weight: var(--rf-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.capture-prompt {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--rf-space-7);
+  padding: 0 calc(var(--rf-space-2) + var(--rf-space-2xs));
+  color: var(--rf-color-accent-text);
+  font-size: var(--rf-text-13);
+  font-weight: var(--rf-weight-semibold);
+}
+
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-space-2);
+}

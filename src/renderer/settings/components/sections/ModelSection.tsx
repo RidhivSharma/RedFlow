@@ -1,5 +1,8 @@
 import { formatBytes, type ModelChoice } from '../../settingsModels'
+import Card from '../Card'
 import SectionHeader from '../SectionHeader'
+import Select from '../Select'
+import SettingRow from '../SettingRow'
 import { panelId, tabId } from '../../sections'
 
 interface ModelSectionProps {
@@ -29,22 +32,22 @@ function ModelSection({
       aria-labelledby={tabId('model')}
       hidden={hidden}
     >
-      <SectionHeader title="Model & language" description="Whisper runs locally on this machine." />
+      <SectionHeader
+        title="Model & language"
+        description="Speech recognition runs locally on this PC."
+      />
 
-      <div className="card">
-        <div className="setting-row">
-          <label className="setting-copy" htmlFor="model">
-            <span className="setting-label">Whisper model</span>
-            <span className="setting-hint">
-              The `.bin` files found in Redflow&rsquo;s models folder.
-            </span>
-          </label>
-          <select
+      <Card>
+        <SettingRow
+          label="Whisper model"
+          description="The .bin files found in Redflow's models folder."
+          htmlFor="model"
+        >
+          <Select
             id="model"
-            className="select"
             value={selectedModel}
             disabled={capturing || modelChoices.length === 0}
-            onChange={(event) => onModelChange(event.target.value)}
+            onChange={onModelChange}
           >
             {modelChoices.map((choice) => (
               <option key={choice.file} value={choice.file}>
@@ -52,25 +55,19 @@ function ModelSection({
                 {choice.sizeBytes === null ? ' (not found)' : ` — ${formatBytes(choice.sizeBytes)}`}
               </option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </SettingRow>
 
-        <div className="setting-row">
-          <label className="setting-copy" htmlFor="language">
-            <span className="setting-label">Language</span>
-            <span className="setting-hint">Auto-detect works best with a multilingual model.</span>
-          </label>
-          <select
-            id="language"
-            className="select"
-            value={language}
-            disabled={capturing}
-            onChange={(event) => onLanguageChange(event.target.value)}
-          >
+        <SettingRow
+          label="Language"
+          description="Auto-detect works best with a multilingual model."
+          htmlFor="language"
+        >
+          <Select id="language" value={language} disabled={capturing} onChange={onLanguageChange}>
             <option value="en">English</option>
             <option value="auto">Auto-detect</option>
-          </select>
-        </div>
+          </Select>
+        </SettingRow>
 
         {language === 'auto' ? (
           <p className="note">
@@ -78,7 +75,7 @@ function ModelSection({
             other languages.
           </p>
         ) : null}
-      </div>
+      </Card>
     </section>
   )
 }

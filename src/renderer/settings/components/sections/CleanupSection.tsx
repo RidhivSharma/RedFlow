@@ -1,3 +1,4 @@
+import Card from '../Card'
 import SectionHeader from '../SectionHeader'
 import Toggle from '../Toggle'
 import { panelId, tabId } from '../../sections'
@@ -29,13 +30,13 @@ function CleanupSection({
     >
       <SectionHeader
         title="Text cleanup"
-        description="Shape the transcript before Redflow pastes it."
+        description="Tidy the transcript before it is inserted."
       />
 
-      <div className="card">
+      <Card>
         <Toggle
           label="Remove filler words"
-          description="Drop sounds such as “um” and “uh”, including their longer spellings."
+          description="Drops sounds like “um” and “uh”, including their longer spellings."
           checked={removeFillerWords}
           disabled={disabled}
           onChange={onRemoveFillerWordsChange}
@@ -43,12 +44,12 @@ function CleanupSection({
 
         <Toggle
           label="Spoken commands"
-          description="Turn “new line”, “new paragraph”, “period”, “comma”, and “question mark” into punctuation and line breaks."
+          description="Say “new line”, “new paragraph”, “period”, “comma” or “question mark” to insert line breaks and punctuation."
           checked={spokenCommands}
           disabled={disabled}
           onChange={onSpokenCommandsChange}
         />
-      </div>
+      </Card>
     </section>
   )
 }

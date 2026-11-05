@@ -1,6 +1,10 @@
 import type { MicrophoneDevice } from '@shared/ipc'
+import Button from '../Button'
+import Card from '../Card'
 import LevelMeter from '../LevelMeter'
 import SectionHeader from '../SectionHeader'
+import Select from '../Select'
+import SettingRow from '../SettingRow'
 import { panelId, tabId } from '../../sections'
 
 interface MicrophoneSectionProps {
@@ -36,23 +40,20 @@ function MicrophoneSection({
     >
       <SectionHeader
         title="Microphone"
-        description="The input Redflow keeps warm between utterances."
+        description="Choose and test the input Redflow listens to."
       />
 
-      <div className="card">
-        <div className="setting-row">
-          <label className="setting-copy" htmlFor="microphone">
-            <span className="setting-label">Input device</span>
-            <span className="setting-hint">
-              System default follows the device Windows currently uses.
-            </span>
-          </label>
-          <select
+      <Card>
+        <SettingRow
+          label="Input device"
+          description="System default follows the device Windows currently uses."
+          htmlFor="microphone"
+        >
+          <Select
             id="microphone"
-            className="select"
             value={selectedMicrophone}
             disabled={capturing}
-            onChange={(event) => onMicrophoneChange(event.target.value)}
+            onChange={onMicrophoneChange}
           >
             <option value="">System default</option>
             {microphoneMissing ? (
@@ -63,32 +64,25 @@ function MicrophoneSection({
                 {device.label}
               </option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </SettingRow>
 
-        <div className="setting-row test-row">
-          <div className="setting-copy">
-            <span className="setting-label">Test microphone</span>
-            <span className="setting-hint">
-              Speak normally and watch the meter. Changes to the input device apply immediately.
-            </span>
-          </div>
+        <SettingRow
+          className="test-row"
+          label="Test microphone"
+          description="Speak normally and watch the meter. Input device changes apply immediately."
+        >
           <div className="test-controls">
-            <button
-              type="button"
-              className={`button${testing ? ' button-active' : ''}`}
-              onClick={onTestMicrophone}
-              disabled={capturing}
-            >
+            <Button active={testing} onClick={onTestMicrophone} disabled={capturing}>
               {testing ? 'Stop test' : 'Test microphone'}
-            </button>
+            </Button>
             <LevelMeter level={level} active={testing} />
             <span className="test-caption">
               {testing ? 'Listening…' : microphones.length === 0 ? 'No microphones found' : 'Idle'}
             </span>
           </div>
-        </div>
-      </div>
+        </SettingRow>
+      </Card>
     </section>
   )
 }

@@ -94,10 +94,17 @@
 .setting-row > :not(.setting-copy) {
   flex: 0 1 auto;
   min-width: 0;
+  /* The control never squeezes the text column below half of the row. */
+  max-width: calc(50% - var(--rf-space-6));
 }
 
 .toggle-row > .switch {
   flex: none;
+}
+
+.toggle-row.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 label.setting-copy {
@@ -137,6 +144,7 @@ label.setting-copy {
 
   .setting-row > :not(.setting-copy) {
     width: 100%;
+    max-width: none;
   }
 
   .toggle-row > .switch {
