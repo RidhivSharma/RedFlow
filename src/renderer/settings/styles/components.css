@@ -9,22 +9,18 @@
 
 .level-meter {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: var(--rf-space-xs);
-  width: 100%;
-  height: 18px;
-  padding: var(--rf-space-xs);
-  border: 1px solid var(--rf-color-border-subtle);
-  border-radius: var(--rf-radius-sm);
-  background-color: var(--rf-color-bg);
+  height: var(--rf-size-meter-height);
 }
 
 .level-bar {
-  flex: 1;
-  min-width: var(--rf-space-2xs);
-  border-radius: calc(var(--rf-radius-xs) / 2);
+  flex: none;
+  width: var(--rf-size-meter-segment);
+  height: 100%;
+  border-radius: var(--rf-radius-2xs);
   background-color: var(--rf-color-surface-3);
-  transition: background-color var(--rf-duration-fast) var(--rf-ease);
+  transition: background-color var(--rf-duration-meter) var(--rf-ease);
 }
 
 .level-bar.is-lit {
@@ -35,9 +31,59 @@
   background-color: var(--rf-color-accent-text);
 }
 
-.test-caption {
+.test-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rf-space-2);
   color: var(--rf-color-text-muted);
   font-size: var(--rf-text-12);
+}
+
+.test-status-dot {
+  flex: none;
+  width: var(--rf-space-2);
+  height: var(--rf-space-2);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-text-disabled);
+}
+
+.test-status.is-active .test-status-dot {
+  background-color: var(--rf-color-accent);
+  animation: status-pulse var(--rf-pulse-duration) var(--rf-pulse-ease) infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--rf-color-accent-soft);
+  }
+
+  50% {
+    box-shadow: var(--rf-shadow-capture);
+  }
+}
+
+.example-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rf-space-2);
+  margin: 0;
+  padding: var(--rf-space-4) var(--rf-space-5);
+  list-style: none;
+}
+
+.example-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--rf-space-1) var(--rf-space-3);
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-text-12);
+  font-weight: var(--rf-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .note {
@@ -61,5 +107,11 @@
   .test-controls {
     justify-content: flex-start;
     justify-items: stretch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .test-status.is-active .test-status-dot {
+    animation: none;
   }
 }

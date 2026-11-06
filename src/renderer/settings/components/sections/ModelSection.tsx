@@ -35,6 +35,7 @@ function ModelSection({
       <SectionHeader
         title="Model & language"
         description="Speech recognition runs locally on this PC."
+        badge="Runs locally"
       />
 
       <Card>

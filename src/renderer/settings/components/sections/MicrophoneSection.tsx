@@ -77,8 +77,15 @@ function MicrophoneSection({
               {testing ? 'Stop test' : 'Test microphone'}
             </Button>
             <LevelMeter level={level} active={testing} />
-            <span className="test-caption">
-              {testing ? 'Listening…' : microphones.length === 0 ? 'No microphones found' : 'Idle'}
+            <span className={`test-status${testing ? ' is-active' : ''}`}>
+              <span className="test-status-dot" aria-hidden="true" />
+              <span>
+                {testing
+                  ? 'Listening…'
+                  : microphones.length === 0
+                    ? 'No microphones found'
+                    : 'Idle'}
+              </span>
             </span>
           </div>
         </SettingRow>

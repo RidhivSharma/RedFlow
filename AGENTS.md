@@ -117,7 +117,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 0.3 | UI: design system foundation | ◐ awaiting owner check |
 | 0.4 | UI: app shell (sidebar + sections) | ◐ awaiting owner check |
 | 0.5 | UI: core controls | ◐ awaiting owner check |
-| 0.6 | UI: section polish + motion | ☐ not started |
+| 0.6 | UI: section polish + motion | ◐ awaiting owner check |
 | 0.7 | UI: overlay alignment (optional) | ☐ not started |
 | 0.8 | UI: final QA | ☐ not started |
 
@@ -359,10 +359,10 @@ Component specs:
 - **Done when:** no control uses its old styling and behavior is identical.
 
 ### Phase 0.6 — Section polish + motion
-- [ ] Microphone: segmented meter and status label per spec, driven exactly as before; test button restyled for its existing states.
-- [ ] Model & language: "Runs locally" badge, model select showing file name and size as today, language select.
-- [ ] Text cleanup: static example chips. System: single row with header. Sidebar footer per Layout spec.
-- [ ] Section fade/rise transition; all pulses and transitions disabled or reduced under `prefers-reduced-motion`.
+- [x] Microphone: segmented meter and status label per spec, driven exactly as before; test button restyled for its existing states.
+- [x] Model & language: "Runs locally" badge, model select showing file name and size as today, language select.
+- [x] Text cleanup: static example chips. System: single row with header. Sidebar footer per Layout spec.
+- [x] Section fade/rise transition; all pulses and transitions disabled or reduced under `prefers-reduced-motion`.
 - **Owner to verify:** Test microphone moves the meter and returns to Idle when stopped; every section looks complete at 940×660 and 780×540.
 - **Done when:** the window matches the design spec end to end.
 

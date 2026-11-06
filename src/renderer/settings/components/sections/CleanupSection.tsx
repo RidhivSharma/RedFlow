@@ -12,6 +12,14 @@ interface CleanupSectionProps {
   readonly onSpokenCommandsChange: (checked: boolean) => void
 }
 
+const SPOKEN_COMMAND_EXAMPLES = [
+  'new line',
+  'new paragraph',
+  'period',
+  'comma',
+  'question mark'
+] as const
+
 function CleanupSection({
   hidden,
   removeFillerWords,
@@ -49,6 +57,14 @@ function CleanupSection({
           disabled={disabled}
           onChange={onSpokenCommandsChange}
         />
+
+        <ul className="example-chips" aria-label="Spoken command examples">
+          {SPOKEN_COMMAND_EXAMPLES.map((phrase) => (
+            <li key={phrase} className="example-chip">
+              “{phrase}”
+            </li>
+          ))}
+        </ul>
       </Card>
     </section>
   )
