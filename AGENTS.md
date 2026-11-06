@@ -118,7 +118,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 0.4 | UI: app shell (sidebar + sections) | ◐ awaiting owner check |
 | 0.5 | UI: core controls | ◐ awaiting owner check |
 | 0.6 | UI: section polish + motion | ◐ awaiting owner check |
-| 0.7 | UI: overlay alignment (optional) | ☐ not started |
+| 0.7 | UI: overlay alignment (optional) | ◐ awaiting owner check |
 | 0.8 | UI: final QA | ☐ not started |
 
 ### Phase 1 — Scaffold + tray
@@ -367,7 +367,7 @@ Component specs:
 - **Done when:** the window matches the design spec end to end.
 
 ### Phase 0.7 — Overlay alignment (optional)
-- [ ] The overlay (`src/renderer/overlay`) uses the shared tokens. Size, position, click-through, timing and states are unchanged. Recording/listening uses the accent pulse; the error state uses warning (#F5A524) with an alert icon and the same text, so errors stay distinct from the red brand/record color; "Inserted" uses success.
+- [x] The overlay (`src/renderer/overlay`) uses the shared tokens. Size, position, click-through, timing and states are unchanged. Recording/listening uses the accent pulse; the error state uses warning (#F5A524) with an alert icon and the same text, so errors stay distinct from the red brand/record color; "Inserted" uses success.
 - **Owner to verify:** the overlay still never steals focus and all four states look right.
 - **Done when:** overlay and settings share one visual language with unchanged behavior.
 
