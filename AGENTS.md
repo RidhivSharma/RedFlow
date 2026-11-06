@@ -119,7 +119,7 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 0.5 | UI: core controls | ◐ awaiting owner check |
 | 0.6 | UI: section polish + motion | ◐ awaiting owner check |
 | 0.7 | UI: overlay alignment (optional) | ◐ awaiting owner check |
-| 0.8 | UI: final QA | ☐ not started |
+| 0.8 | UI: final QA | ◐ awaiting owner check |
 
 ### Phase 1 — Scaffold + tray
 - [x] electron-vite scaffold with strict TypeScript; React renderer compiles; ESLint clean.
@@ -372,10 +372,10 @@ Component specs:
 - **Done when:** overlay and settings share one visual language with unchanged behavior.
 
 ### Phase 0.8 — Final QA
-- [ ] Contrast audit of every token pairing actually used (throwaway script, not committed), with the results table added to `docs/UI_CONTRACT.md`; fix failures by adjusting tokens only.
-- [ ] Keyboard walkthrough of the whole window; `prefers-reduced-motion` check; layout check at 125% and 150% Windows scaling and at the minimum window size.
-- [ ] Diff audit against the branch point: only allowed files changed (renderer settings/overlay/shared styles, the visible-string and icon edits, `electron-builder.yml`, settings window options, docs). Report any violation and revert it.
-- [ ] Repo-wide search for leftover "Murmur" and old teal colors; each remaining hit justified.
-- [ ] `npm run dist:win` succeeds; `docs/ARCHITECTURE.md` final; flag (do not edit) that `README.md` still says Murmur and must be updated before the Phase 10 release.
+- [x] Contrast audit of every token pairing actually used (throwaway script, not committed), with the results table added to `docs/UI_CONTRACT.md`; fix failures by adjusting tokens only.
+- [x] Keyboard walkthrough of the whole window; `prefers-reduced-motion` check; layout check at 125% and 150% Windows scaling and at the minimum window size.
+- [x] Diff audit against the branch point: only allowed files changed (renderer settings/overlay/shared styles, the visible-string and icon edits, `electron-builder.yml`, settings window options, docs). Report any violation and revert it.
+- [x] Repo-wide search for leftover "Murmur" and old teal colors; each remaining hit justified.
+- [x] `npm run dist:win` succeeds; `docs/ARCHITECTURE.md` final; flag (do not edit) that `README.md` still says Murmur and must be updated before the Phase 10 release.
 - **Owner to verify:** full regression (hotkey dictation into Notepad, rebind, every toggle, mic test, model/language, Start with Windows), installer over the previous build keeps settings, no `%APPDATA%\Redflow` folder.
 - **Done when:** all boxes are verified on a real Windows machine.

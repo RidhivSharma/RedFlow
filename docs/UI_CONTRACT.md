@@ -511,3 +511,286 @@ gitignored.
 9. **Hidden-window titles are not user-visible.** `Murmur Overlay` and
    `Murmur Recorder` are in frameless/hidden windows. They are classified
    legacy-keep; do not treat the Phase 0.2 grep as requiring their removal.
+
+---
+
+## 11. Phase 0.8 final QA
+
+| Item | Value |
+|---|---|
+| Phase | 0.8 - final QA |
+| Branch | `ui-redesign` |
+| QA commit | `4874c25` (the Phase 0.8 commit adds this section) |
+| Branch point | `b8de08e` |
+| QA date | 2026-11-06 |
+| App under test | built renderer + Electron shell; throwaway QA harness, mock preload |
+| Source changes in this phase | documentation and checklist only; no product code or token values changed |
+
+The audit used throwaway scripts outside the repository for the contrast
+calculation and the Electron walkthrough. Nothing from those scripts is committed.
+
+### 11.1 Contrast audit
+
+WCAG 2.2 AA requires 4.5:1 for normal text and 3:1 for the visual information
+required to identify a component or its state (SC 1.4.11). Inactive controls are
+exempt from text contrast. The table below records every token pairing actually
+used by the settings and overlay surfaces.
+
+**Text pairings (4.5:1)**
+
+| Pairing | Ratio | Result |
+|---|---:|---|
+| body text (`text` on `bg`) | 17.90 | pass |
+| sidebar brand (`text` on `bg-sidebar`) | 17.29 | pass |
+| section title (`text` on `bg`) | 17.90 | pass |
+| setting label (`text` on `surface-1`) | 16.73 | pass |
+| select value (`text` on `surface-2`) | 15.60 | pass |
+| keycap label (`text` on `surface-2`) | 15.60 | pass |
+| sidebar inactive label (`text-secondary` on `bg-sidebar`) | 9.24 | pass |
+| sidebar active/hover label (`text-secondary` on `surface-2`) | 8.33 | pass |
+| section description (`text-muted` on `bg`) | 5.83 | pass |
+| setting hint (`text-muted` on `surface-1`) | 5.45 | pass |
+| sidebar eyebrow (`text-muted` on `bg-sidebar`) | 5.64 | pass |
+| sidebar footer (`text-muted` on `bg-sidebar`) | 5.64 | pass |
+| status line (`text-muted` on `bg`) | 5.83 | pass |
+| switch On/Off label (`text-muted` on `surface-1`) | 5.45 | pass |
+| microphone test status (`text-muted` on `surface-1`) | 5.45 | pass |
+| secondary body (`text-secondary` on `bg`) | 9.56 | pass |
+| note text (`text-secondary` on `surface-1`) | 8.94 | pass |
+| chip text (`text-secondary` on `surface-2`) | 8.33 | pass |
+| badge text (`text-secondary` on `surface-2`) | 8.33 | pass |
+| ghost button label (`text-secondary` on `surface-1`) | 8.94 | pass |
+| select chevron (`text-muted` on `surface-2`) | 5.09 | pass |
+| select chevron hover (`text-muted` on `surface-3`) | 4.57 | pass |
+| primary button label (`on-accent` on `accent-solid`) | 4.93 | pass |
+| primary button hover (`on-accent` on `accent-solid-hover`) | 5.62 | pass |
+| primary button pressed (`on-accent` on `accent-solid-pressed`) | 7.01 | pass |
+| active test button label (`accent-text` on `accent-soft` over `surface-1`) | 7.60 | pass |
+| capture prompt (`accent-text` on `accent-soft` over `bg`) | 8.27 | pass |
+| saved status (`success` on `bg`) | 10.48 | pass |
+| error status (`warning` on `bg`) | 9.64 | pass |
+| overlay label (`text` on pill `surface-1`) | 16.73 | pass |
+| overlay label over desktop (`text` on pill `bg` at 94%) | 16.81 | pass |
+| overlay detail (`text-secondary` on pill `surface-1`) | 8.94 | pass |
+| overlay done label (`success` on pill `surface-1`) | 9.80 | pass |
+| overlay error label (`warning` on pill `surface-1`) | 9.00 | pass |
+| disabled button label (`text-disabled` on `surface-2`) | 2.59 | exempt (inactive) |
+| disabled select value (`text-disabled` on `surface-2`) | 2.59 | exempt (inactive) |
+
+**Non-text state and focus pairings (3:1)**
+
+| Pairing | Ratio | Result |
+|---|---:|---|
+| sidebar active icon (`accent` on `surface-2`) | 4.38 | pass |
+| focus ring on card (`accent-text` on `surface-1`) | 8.72 | pass |
+| focus ring on window (`accent-text` on `bg`) | 9.33 | pass |
+| switch knob when off (`switch-knob` on `surface-3`) | 9.36 | pass |
+| switch track when on (`accent` on `surface-1`) | 4.69 | pass |
+| switch knob when on (`on-accent` on `accent`) | 3.91 | pass |
+| meter lit segment (`accent` on `surface-1`) | 4.69 | pass |
+| meter peak segment (`accent-text` on `surface-1`) | 8.72 | pass |
+| active microphone status dot (`accent` on `surface-1`) | 4.69 | pass |
+
+**Supporting separations (not required to identify a component or state)**
+
+| Pairing | Ratio | Why it is not a 1.4.11 failure |
+|---|---:|---|
+| switch track off (`surface-3` on `surface-1`) | 1.19 | The knob is 9.36:1 against the track and the adjacent "Off" label is 5.45:1; the track is the unfilled groove, not the state cue. |
+| meter off segment (`surface-3` on `surface-1`) | 1.19 | Unlit segments carry no level information; lit and peak segments meet 3:1. |
+| select surface (`surface-2` on `surface-1`) | 1.07 | The value text is 15.60:1, the chevron 5.09:1, and the focus ring 8.72:1; the surface tint is separation, not the only identifier. |
+| select border (`border` 10% on `surface-1`) | 1.44 | Same as above. |
+| card border (`border` 10% on `bg`) | 1.40 | Cards are non-interactive grouping; headings, spacing, and row dividers carry the structure. |
+| secondary button surface (`surface-2` on `surface-1`) | 1.07 | The label is 8.94:1 and the focus ring 8.72:1; the filled area is decoration. |
+| secondary button hover (`surface-3` on `surface-1`) | 1.19 | Same as above. |
+| listening pill border (`accent-border` on `surface-1`) | 1.85 | "Listening" is 16.73:1 and the pulsing accent dot is 4.69:1; the border is decoration. |
+| error pill border (`warning-border` on `surface-1`) | 2.42 | "Couldn't dictate" is 9.00:1 and the alert icon uses the same warning color; the border is decoration. |
+| spinner track (`accent` 25% on `surface-1`) | 1.33 | The moving accent arc is 4.69:1; the track is decoration. |
+
+No token values were changed. These separations are deliberately quiet in the
+graphite design, and every control keeps a high-contrast label, value, icon, or
+focus ring. A throwaway preview of brighter borders (24% and 32% white) made
+cards and controls visibly heavy without adding information, so it was not
+adopted. If the owner wants strict 3:1 boundaries even where WCAG does not
+require them, that is a token-only change.
+
+### 11.2 Keyboard walkthrough
+
+The settings window was mounted in a throwaway Electron harness with a mock
+preload (no settings were written) and driven with real key events.
+
+- The sidebar is a vertical `tablist` with one roving tab stop. `ArrowDown`
+  moved through Dictation -> Text cleanup -> Microphone -> Model & language ->
+  System and wrapped to Dictation; `ArrowUp` reversed; `Home` and `End` jumped to
+  the first and last tabs. Every move activated the matching panel.
+- All five panels stayed mounted: four had `hidden` and one was visible. Tab
+  order inside each section matched the visual order: Change -> trailing-space
+  switch; filler -> spoken-commands switch; microphone select -> Test
+  microphone; model select -> language select; Start with Windows switch.
+  `Shift+Tab` returned to the previous control.
+- Every stop showed the same visible `:focus-visible` ring (`solid 2px`
+  `rgb(255, 149, 146)` at 150% scale, `1.6px` at 125% due to subpixel rounding).
+  The real checkbox, native selects, and buttons all remained keyboard
+  operable; the checkbox ring is drawn on the switch track.
+- `Enter` on Change started one capture (`captureCalls: 1`), rendered the
+  `Ctrl` + `F10` keycaps, and showed "Saved". Escape, Cancel, and the 15 s
+  timeout were not re-driven in this phase; their behavior is unchanged from
+  the Phase 0.5 implementation, and they remain in the owner regression below.
+- The Test microphone button was reachable and focusable. Live meter movement
+  remains part of the owner regression below.
+
+### 11.3 Reduced motion
+
+With `prefers-reduced-motion: reduce` forced in Chromium, the section panel
+reported `animation-name: none` and the panel, button, meter, and sidebar all
+reported a `0.01ms` transition duration. Pulses, the section rise, hover
+transitions, and the meter animation are therefore suppressed; no motion is
+required to understand a state.
+
+### 11.4 Layout and scaling
+
+The host display runs at 125% Windows scaling. The harness also forced a 1.5
+device scale factor to represent 150%. Measurements are CSS pixels of the
+window's inner area.
+
+| Run | Inner viewport | Sidebar | Content | Overflow |
+|---|---:|---:|---:|---|
+| default, 125% | 927 x 598 | 232 px | 615 x 305 | none |
+| minimum, 125% | 767 x 478 | 68 px rail | 619 x 305 | none |
+| 820 px boundary, 125% | 820 x 478 | 232 px | 508 x 372 | none |
+| default, forced 150% | 928 x 603 | 232 px | 616 x 305 | none |
+| minimum, forced 150% | 768 x 483 | 68 px rail | 620 x 305 | none |
+| 820 px boundary, forced 150% | 822 x 483 | 232 px | 510 x 372 | none |
+
+At the 820 px boundary the rows stacked as intended: the text column kept
+92.1% of the row width and the control moved to a full-width second line.
+`scrollWidth` equalled `clientWidth` in every run, so there was no horizontal
+overflow and no clipped control. Settings and overlay screenshots at 1x, 1.25x,
+and 1.5x were inspected; the overlay kept its 336 px pill and all four states
+rendered with the expected label colors.
+
+### 11.5 Diff audit against `b8de08e`
+
+All 50 changed files fall into an allowed category. "U1a" is a visible string
+or icon reference outside the renderer; "U1b" is an allowed settings-window
+constructor option.
+
+| File | Change | Verdict |
+|---|---|---|
+| `AGENTS.md` | M | allowed - UI-track checklist/status documentation |
+| `docs/ARCHITECTURE.md` | M | allowed - settings renderer structure documentation |
+| `docs/UI_CONTRACT.md` | A | allowed - audit, contract, and QA evidence |
+| `electron-builder.yml` | M | allowed - U1a product/shortcut names and icon references |
+| `resources/icons/RedFlow-logo.ico` | A | allowed - owner-supplied brand icon |
+| `resources/icons/RedFlow-logo.png` | A | allowed - owner-supplied brand logo |
+| `resources/icons/murmur.ico` | D | allowed - replaced by the Redflow icon |
+| `src/main/app/tray.ts` | M | allowed - U1a visible strings and icon reference |
+| `src/main/friendlyErrors.ts` | M | allowed - U1a visible error strings |
+| `src/main/index.ts` | M | allowed - U1a visible dialog strings/title |
+| `src/main/transcriber.ts` | M | allowed - U1a visible error strings |
+| `src/main/whisperRunner.ts` | M | allowed - U1a visible error strings |
+| `src/main/windows/settingsWindow.ts` | M | allowed - U1b window options plus title/icon |
+| `src/renderer/overlay/index.html` | M | allowed - overlay markup/icons |
+| `src/renderer/overlay/main.ts` | M | allowed - overlay rendering and shared tokens |
+| `src/renderer/overlay/styles.css` | M | allowed - overlay styling |
+| `src/renderer/recorder/main.ts` | M | allowed - U1a visible error strings |
+| `src/renderer/settings/App.tsx` | M | allowed - settings renderer shell; state and handlers preserved |
+| `src/renderer/settings/assets/redflow-logo.png` | A | allowed - settings brand asset |
+| `src/renderer/settings/components/Button.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/Card.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/HotkeyPicker.tsx` | M | allowed - settings component styling only |
+| `src/renderer/settings/components/Keycap.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/SectionHeader.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/Select.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/SettingRow.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/SettingsStatus.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/Sidebar.tsx` | A | allowed - settings shell |
+| `src/renderer/settings/components/Switch.tsx` | A | allowed - settings component |
+| `src/renderer/settings/components/Toggle.tsx` | M | allowed - settings component composition |
+| `src/renderer/settings/components/icons.tsx` | A | allowed - inline SVG icons |
+| `src/renderer/settings/components/sections/CleanupSection.tsx` | A | allowed - extracted section markup |
+| `src/renderer/settings/components/sections/DictationSection.tsx` | A | allowed - extracted section markup |
+| `src/renderer/settings/components/sections/MicrophoneSection.tsx` | A | allowed - extracted section markup |
+| `src/renderer/settings/components/sections/ModelSection.tsx` | A | allowed - extracted section markup |
+| `src/renderer/settings/components/sections/SystemSection.tsx` | A | allowed - extracted section markup |
+| `src/renderer/settings/index.html` | M | allowed - title only; CSP unchanged |
+| `src/renderer/settings/main.tsx` | M | allowed - stylesheet imports |
+| `src/renderer/settings/sections.ts` | A | allowed - navigation metadata |
+| `src/renderer/settings/settingsModels.ts` | A | allowed - model display helper |
+| `src/renderer/settings/styles.css` | D | allowed - replaced by the split style files |
+| `src/renderer/settings/styles/base.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/buttons.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/components.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/keycaps.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/layout.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/selects.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/sidebar.css` | A | allowed - settings styling |
+| `src/renderer/settings/styles/switches.css` | A | allowed - settings styling |
+| `src/renderer/shared/styles/tokens.css` | A | allowed - shared design tokens |
+
+No violation was found. Non-renderer changes were read line by line: they are
+user-visible name/icon substitutions or the allowed settings-window options.
+No IPC channel, payload, preload API, hotkey, audio, whisper, insertion, or
+settings-schema code changed.
+
+### 11.6 "Murmur" and old teal residue
+
+Visible "Murmur" strings are gone from the shipped UI. Every remaining hit is
+one of these legacy-keep categories:
+
+- **Identity and storage:** `app.setName('Murmur')`, `dev.murmur.app`,
+  `%APPDATA%\Murmur`, `%TEMP%\murmur`, `murmur.log`, `MURMUR_DEBUG`,
+  `MurmurSettings`, `window.murmur`, `window.murmurOverlay`,
+  `window.murmurRecorder`, and the `murmur-pcm-capture` worklet name. Renaming
+  these would move user data, orphan the autostart entry, or change the typed
+  bridge; the naming rules in AGENTS.md keep them.
+- **Hidden/host-only titles:** `Murmur Overlay`, `Murmur Recorder`, and the
+  `Murmur Settings` / `Murmur` names still used in package metadata. The two
+  window titles are on hidden frameless windows; `package.json` identity is
+  explicitly legacy-keep, while the installed display name comes from
+  `electron-builder.yml` (`Redflow`).
+- **Logs, comments, internal errors, and tests:** `[murmur]` console prefixes,
+  `[murmur recorder]`, internal guard messages, comments, type names, and the
+  `MurmurTargetIntegrityProbe` class. These are not shown in the overlay or
+  settings window.
+- **Out-of-scope documents and dev art:** `README.md` (flagged below),
+  `SECURITY.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `scripts/generate-icon.mjs`,
+  `scripts/generate-hero.mjs`, and the unreferenced `resources/icons/murmur.png`.
+  Phase 0.2 only required replacing the icon references; the generator and its
+  output are not shipped in the app.
+
+Old teal (`#14b8a6`, `#0f766e`, `#2dd4bf`, and relatives) remains only in
+`docs/assets/hero.svg` (README artwork), `scripts/generate-hero.mjs` (the
+generator for that artwork), and the historical colour table in section 4 of
+this contract. A search of `src/`, `resources/`, and `electron-builder.yml`
+found no teal values; no shipped settings or overlay surface uses the old theme.
+
+### 11.7 Packaging and verification
+
+- `npm run dist:win` completed with exit code 0 and wrote
+  `dist\Redflow-Setup-0.1.0.exe` plus its block map. The build/typecheck steps
+  inside it passed; no code-signing certificate is configured, so signing was
+  skipped as expected.
+- `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`,
+  and `npm test` all passed after the documentation changes:
+  - typecheck: node and web projects both clean.
+  - lint: `eslint --cache .` clean.
+  - format check: "All matched files use Prettier code style!"
+  - build: 35 main modules, 3 preload entries, and 51 renderer modules built.
+  - test: 7 tests passed, 0 failed (2 suites, `insertionFlow`).
+- `README.md` is **not edited**. It still says "Murmur" throughout and must be
+  updated before the Phase 10 release; that is a release-documentation task,
+  not part of this UI track.
+
+### 11.8 Owner verification still open
+
+The automated checks above do not replace a real Windows regression. Still open:
+
+1. Hotkey dictation into Notepad (hold, speak, release, text inserted).
+2. Rebind the hotkey through Change, including Escape, Cancel, and the 15 s
+   timeout, then dictate with the new binding.
+3. Toggle trailing space, filler words, spoken commands, and Start with Windows;
+   restart the app and confirm each persisted.
+4. Run Test microphone: the meter moves while speaking and returns to Idle.
+5. Switch input device, whisper model, and language; dictate once with each.
+6. Install this build over the previous one and confirm `settings.json` is kept
+   and no `%APPDATA%\Redflow` folder appears.
