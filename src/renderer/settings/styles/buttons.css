@@ -1,0 +1,79 @@
+/* Buttons: secondary (default), primary, ghost, and the existing active state. */
+
+.button {
+  height: 36px;
+  padding: 0 var(--rf-space-4);
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-md);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text);
+  font-size: var(--rf-text-14);
+  font-weight: var(--rf-weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--rf-duration-fast) var(--rf-ease),
+    border-color var(--rf-duration-fast) var(--rf-ease),
+    color var(--rf-duration-fast) var(--rf-ease),
+    transform var(--rf-duration-fast) var(--rf-ease);
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--rf-color-border-strong);
+  background-color: var(--rf-color-surface-3);
+}
+
+.button:active:not(:disabled) {
+  background-color: var(--rf-color-surface-3);
+  transform: translateY(1px);
+}
+
+.button:disabled {
+  border-color: var(--rf-color-border-subtle);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.button-primary {
+  border-color: var(--rf-color-accent-solid);
+  background-color: var(--rf-color-accent-solid);
+  color: var(--rf-color-on-accent);
+}
+
+.button-primary:hover:not(:disabled) {
+  border-color: var(--rf-color-accent-solid-hover);
+  background-color: var(--rf-color-accent-solid-hover);
+}
+
+.button-primary:active:not(:disabled) {
+  border-color: var(--rf-color-accent-solid-pressed);
+  background-color: var(--rf-color-accent-solid-pressed);
+}
+
+.button-ghost {
+  background-color: transparent;
+  color: var(--rf-color-text-secondary);
+}
+
+.button-ghost:hover:not(:disabled) {
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text);
+}
+
+.button-active {
+  border-color: var(--rf-color-accent-border);
+  background-color: var(--rf-color-accent-soft);
+  color: var(--rf-color-accent-text);
+}
+
+.button-active:hover:not(:disabled) {
+  border-color: var(--rf-color-accent);
+  background-color: var(--rf-color-accent-soft);
+}
+
+.button-active:active:not(:disabled) {
+  border-color: var(--rf-color-accent);
+  background-color: var(--rf-color-accent-soft);
+}

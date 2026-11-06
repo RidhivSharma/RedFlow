@@ -1,3 +1,6 @@
+import SettingRow from './SettingRow'
+import Switch from './Switch'
+
 interface ToggleProps {
   readonly label: string
   readonly description?: string
@@ -6,7 +9,7 @@ interface ToggleProps {
   readonly onChange: (checked: boolean) => void
 }
 
-/** A checkbox styled as a Windows-friendly switch, wrapped in its label. */
+/** A labelled settings row whose switch is a real checkbox underneath. */
 function Toggle({
   label,
   description,
@@ -15,23 +18,14 @@ function Toggle({
   onChange
 }: ToggleProps): React.JSX.Element {
   return (
-    <label className={`toggle-row${disabled ? ' is-disabled' : ''}`}>
-      <span className="setting-copy">
-        <span className="setting-label">{label}</span>
-        {description !== undefined ? <span className="setting-hint">{description}</span> : null}
-      </span>
-      <span className="switch">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <span className="switch-track" aria-hidden="true">
-          <span className="switch-thumb" />
-        </span>
-      </span>
-    </label>
+    <SettingRow
+      as="label"
+      className={disabled ? 'toggle-row is-disabled' : 'toggle-row'}
+      label={label}
+      description={description}
+    >
+      <Switch checked={checked} disabled={disabled} onChange={onChange} />
+    </SettingRow>
   )
 }
 

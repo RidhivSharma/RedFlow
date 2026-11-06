@@ -1,3 +1,4 @@
+import '../shared/styles/tokens.css'
 import './styles.css'
 import type { OverlayState, OverlayStatePayload } from '@shared/ipc'
 

@@ -1,0 +1,86 @@
+/* Reset and application-wide foundations for every settings surface. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  background-color: var(--rf-color-bg);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--rf-color-bg);
+  color: var(--rf-color-text);
+  font-family: var(--rf-font-ui);
+  font-size: var(--rf-text-14);
+  font-weight: var(--rf-weight-regular);
+  line-height: 1.5;
+  overflow-y: auto;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+::selection {
+  background-color: var(--rf-color-accent-solid);
+  color: var(--rf-color-on-accent);
+}
+
+:focus-visible {
+  outline: var(--rf-focus-width) solid var(--rf-color-accent-text);
+  outline-offset: var(--rf-focus-offset);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Themed thin scrollbar (Chromium only; the settings window runs in Electron). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: var(--rf-color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid var(--rf-color-bg);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-surface-3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--rf-color-border-strong);
+}
+
+::-webkit-scrollbar-corner {
+  background-color: var(--rf-color-bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

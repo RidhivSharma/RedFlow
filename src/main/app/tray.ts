@@ -17,7 +17,7 @@ export function createTray(actions: TrayActions): void {
     return
   }
 
-  const iconPath = getResourcePath('icons', 'murmur.ico')
+  const iconPath = getResourcePath('icons', 'RedFlow-logo.ico')
   const icon = nativeImage.createFromPath(iconPath)
   if (icon.isEmpty()) {
     throw new Error(`Tray icon could not be loaded from ${iconPath}`)

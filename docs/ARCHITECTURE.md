@@ -121,6 +121,8 @@ The recorder computes a 0–1 level from an `AnalyserNode` RMS window on a dBFS 
 
 The only *normal* window, and the only one allowed to take focus. Standard frame, React page, singleton (reuse instead of creating twice). Opened from the tray; closing destroys it (recreated on demand). Because it can hold focus, the inserter refuses to paste into any focused Murmur window (`own-window-focused`, section 7). The hotkey stays live while Settings is open so a recording is never silently lost, but its transcript is not pasted back into Murmur.
 
+The renderer is a two-column shell. The sidebar holds the Redflow brand, a vertical tablist for the five sections (Dictation, Text cleanup, Microphone, Model & language, System), and the version block; it is 232 px wide and folds to a 68 px icon rail below 820 px. The content pane scrolls internally, with 40 px padding and a 680 px maximum width. All five tab panels stay mounted and are hidden with the `hidden` attribute, so an in-progress hotkey capture or microphone test survives navigation. Navigation follows the ARIA tabs pattern: roving `tabIndex`, and `ArrowUp`/`ArrowDown`/`Home`/`End` move and activate. Rows are two columns whose text side keeps at least half the row width, and stack below a 560 px container width. `App.tsx` keeps the state, effects and handlers; `components/Sidebar.tsx`, `SectionHeader.tsx`, `SettingsStatus.tsx`, `icons.tsx`, `components/sections/*.tsx`, `sections.ts`, and `settingsModels.ts` render the shell and sections. Styling lives in `styles/base.css`, `layout.css`, `sidebar.css`, `components.css`, `buttons.css`, `selects.css`, `switches.css`, and `keycaps.css`, all consuming the shared tokens in `src/renderer/shared/styles/tokens.css`.
+
 Controls, all applied live (no restart):
 
 - **Push-to-talk hotkey** — click Change, then press a key or modifier combo. Capture runs in main through a temporary uiohook listener while the normal listener is suspended; Escape, a 15 s timeout, or closing the window cancels and restores the previous binding. A 300 ms arming delay ignores the click/Enter that started capture.
@@ -131,7 +133,7 @@ Controls, all applied live (no restart):
 - **Language** — English (`en`) or auto-detect (`auto`), passed to `whisper-cli.exe` per run.
 - **Start with Windows** — mirrors `autostart` into the Windows login items immediately (`app.setLoginItemSettings`).
 
-The footer shows validation errors, background save failures, and a short "Saved" notice. Settings are validated in main; the renderer receives a `{ ok, settings } | { ok, message }` result rather than an Electron error string (section 4).
+The status line below the active section shows validation errors, background save failures, and a short "Saved" notice; the sidebar footer keeps the app and Electron versions and "Changes apply instantly". Settings are validated in main; the renderer receives a `{ ok, settings } | { ok, message }` result rather than an Electron error string (section 4).
 
 ---
 

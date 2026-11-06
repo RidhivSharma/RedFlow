@@ -131,7 +131,7 @@ function assertModel(modelPath: string, isOverride: boolean): void {
   }
 
   const guidance = isOverride
-    ? 'Choose another model in Murmur Settings, or restore the file in the models folder.'
+    ? 'Choose another model in Redflow Settings, or restore the file in the models folder.'
     : `Download ${DEFAULT_MODEL_FILE} into resources/models (see README.md).`
   throw new TranscriptionError(
     'model-missing',
@@ -158,7 +158,7 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
       return Promise.reject(
         new TranscriptionError(
           'cancelled',
-          'Transcription was cancelled because Murmur is shutting down.'
+          'Transcription was cancelled because Redflow is shutting down.'
         )
       )
     }
@@ -176,7 +176,7 @@ export function createTranscriber(options: TranscriberOptions): Transcriber {
         await removeSnapshot(snapshotPath)
         throw new TranscriptionError(
           'cancelled',
-          'Transcription was cancelled because Murmur is shutting down.'
+          'Transcription was cancelled because Redflow is shutting down.'
         )
       }
 

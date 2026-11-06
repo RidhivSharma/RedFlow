@@ -4,7 +4,7 @@
 
 This file is the working agreement for anyone (human or AI agent) writing code in this repo. Read it together with [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) before changing anything.
 
-> Naming note: the repository folder may be named `RedFlow`, but the product name is **Murmur**. Use `Murmur` for `productName`, window titles, the tray tooltip, and the settings folder name. Do not rename the repository folder.
+> Naming note: the product name is now **Redflow** (formerly Murmur). The repository folder is `RedFlow`. Historical status notes below keep the old name "Murmur" on purpose; do not rewrite them. Some internal identifiers intentionally stay as they are, see "Naming (Redflow)" in the UI redesign track.
 
 ---
 
@@ -112,6 +112,14 @@ Keep this checklist current and truthful. Phases are done in order; a phase is "
 | 8 | Quality & reliability | ◐ in progress |
 | 9 | Installer (NSIS) | ✓ done |
 | 10 | Release | ◐ in progress |
+| 0.1 | UI: audit + contract | ✓ done |
+| 0.2 | UI: rebrand to Redflow | ◐ awaiting owner check |
+| 0.3 | UI: design system foundation | ◐ awaiting owner check |
+| 0.4 | UI: app shell (sidebar + sections) | ◐ awaiting owner check |
+| 0.5 | UI: core controls | ◐ awaiting owner check |
+| 0.6 | UI: section polish + motion | ◐ awaiting owner check |
+| 0.7 | UI: overlay alignment (optional) | ◐ awaiting owner check |
+| 0.8 | UI: final QA | ◐ awaiting owner check |
 
 ### Phase 1 — Scaffold + tray
 - [x] electron-vite scaffold with strict TypeScript; React renderer compiles; ESLint clean.
@@ -235,3 +243,139 @@ Owned decisions are listed above. These still need the owner's answer when their
 4. Sound cues for start/stop, and the "inserted" confirmation (phases 6/7). **Still open.** The overlay confirmation ships, but audible cues are not implemented or exposed in settings yet.
 5. Hotkey ignored while Murmur's own settings window is focused? (phase 7). **Current behavior:** the hotkey stays live so a hold is not lost, and the inserter refuses to paste into any focused Murmur window. Fully ignoring the hotkey while Settings is focused remains possible if the owner prefers it.
 6. Adaptive vs. fixed clipboard-restore delay (phase 8). **Decided: fixed 350 ms.** 0 ms is racy (it pasted the old sentinel in two runs and the transcript in one); 350 ms, 1 s, and 5 s all passed. The elevated/unknown fallback skips restore entirely so the transcript stays available for a manual Ctrl+V.
+
+## UI redesign track (Phases 0.1–0.8)
+
+Scope: redesign the look and interaction of the Settings window (`src/renderer/settings`) and rebrand Murmur → Redflow wherever the user sees the name. Nothing else. Branch: `ui-redesign`. These phases are independent of phases 1–10; do not touch their checklists or status notes.
+
+### UI rules (U1–U10)
+
+1. **U1 UI-only.** Do not change behavior, IPC channels or payloads (`src/shared/ipc.ts`), preload, hotkey, audio, whisper, insertion, settings schema/storage, or the dictation state machine. The only allowed edits outside the renderer are: (a) visible strings and icon file references in main code and `electron-builder.yml`; (b) these BrowserWindow constructor options of the settings window only: `backgroundColor`, `width`, `height`, `minWidth`, `minHeight`, `autoHideMenuBar`, `title`, `icon`. Anything else: stop and ask the owner.
+2. **U2 No new dependencies**, runtime or dev (no Tailwind, CSS-in-JS, icon libraries, animation libraries, font packages). Use plain CSS files, React, and inline SVG components. Fonts are the Windows system stack. No CDN assets, no network (fixed decision 5).
+3. **U3 Keep logic intact.** Keep existing React state, hooks and handlers. JSX may be restructured for layout, but props and functions used by logic keep their names and behavior. All five sections stay mounted at all times and are shown/hidden with the `hidden` attribute, so hotkey capture, the mic test and any subscriptions never unmount when navigating.
+4. **U4 Native controls underneath.** Switches stay real `input type="checkbox"`, dropdowns stay real `select`, actions stay real `button`. No custom listbox or fake controls.
+5. **U5 CSS organization.** Shared tokens in `src/renderer/shared/styles/tokens.css`. Settings styles in `src/renderer/settings/styles/` (`base.css`, `layout.css`, `components.css`; split further when a file nears 250 lines). All colors, spacing, radii, shadows and motion come from CSS custom properties prefixed `--rf-`. No hard-coded hex values outside `tokens.css`. Remove old styles only when proven unreferenced.
+6. **U6 CSP.** Do not loosen the Content-Security-Policy. Check the settings HTML first. Do not use `data:` URIs or inline `style` attributes if the CSP blocks them; use inline SVG elements and CSS classes.
+7. **U7 Code quality rules still apply.** Strict TypeScript, no `any`, ESLint and Prettier clean. One component per file in `src/renderer/settings/components/`, soft limit ~250 lines per file.
+8. **U8 Accessibility.** WCAG 2.2 AA: text contrast ≥ 4.5:1, UI component contrast ≥ 3:1, visible `:focus-visible` ring, full keyboard operability, `prefers-reduced-motion` respected, state never conveyed by color alone, interactive targets ≥ 32×32 px.
+9. **U9 Verification after every phase.** `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build`, `npm test` must all pass; report the output. Do not edit `README.md`. Items that need a real Windows check stay unticked under "Owner to verify" until the owner confirms. Update `docs/ARCHITECTURE.md` (settings renderer structure only) in Phases 0.4 and 0.8.
+10. **U10 Commits.** After the automated checks pass, make exactly one commit per phase on `ui-redesign` with the message `ui(0.N): <short summary>`. Do not push, switch branches, rebase, or amend.
+
+### Naming (Redflow)
+
+The product name is **Redflow** everywhere the user sees it: tray tooltip, window titles, settings header and footer, overlay text, installer/shortcut/product display names, installer file name (`Redflow-Setup-<version>.exe`). These legacy identifiers stay unchanged because changing them would move user data or orphan the autostart entry: repo folder `RedFlow`, `package.json` `name`/`productName`/`appId`, userData folder `%APPDATA%\Murmur`, temp folder `%TEMP%\murmur`, autostart registry value `dev.murmur.app`, IPC channel names, internal identifiers and file names that are not user-visible. Never add `app.setName` or `app.setPath('userData', …)`. If a rename would change the userData path, stop and ask the owner.
+
+### Design system (source of truth)
+
+Direction: "graphite + signal red". Calm, precise, Windows-native. Layered dark surfaces separated by hairline borders and lightness, not heavy shadows. Red is scarce: only active/on states, the primary button, the focus ring, listening/meter states, and the brand mark. Everything else is neutral.
+
+Color tokens (`--rf-` prefix):
+
+| Token | Value | Use |
+|---|---|---|
+| bg | #0B0B0D | window background |
+| bg-sidebar | #101013 | sidebar |
+| surface-1 | #141418 | cards |
+| surface-2 | #1B1B21 | controls |
+| surface-3 | #24242C | hover/pressed controls, switch off track |
+| border-subtle | rgba(255,255,255,0.06) | row dividers |
+| border | rgba(255,255,255,0.10) | card and control borders |
+| border-strong | rgba(255,255,255,0.18) | hover borders |
+| text | #F4F4F6 | primary text |
+| text-secondary | #B4B4BE | descriptions |
+| text-muted | #8B8B96 | helper text (5.4:1 on surface-1) |
+| text-disabled | #5C5C66 | disabled only |
+| accent | #E5484D | switch on, meter, glow, focus accents |
+| accent-hover | #EC5D5E | accent hover |
+| accent-solid | #D13438 | filled button background (white text 4.9:1) |
+| accent-solid-hover | #C42B30 | filled button hover |
+| accent-solid-pressed | #A9262A | filled button pressed |
+| accent-text | #FF9592 | red text on dark, meter peak, focus ring |
+| accent-soft | rgba(229,72,77,0.14) | soft red fills |
+| accent-border | rgba(229,72,77,0.45) | red borders |
+| accent-glow | rgba(229,72,77,0.35) | glow shadows |
+| success | #3DD68C | success only |
+| warning | #F5A524 | warning/overlay error only |
+
+Other tokens: radii xs 4, sm 6, md 8 (controls), lg 12 (cards), xl 16, full 999. Spacing on a 4 px grid: 4, 8, 12, 16, 20, 24, 32, 40. Font UI: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif. Font mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace. Type scale: 11 (eyebrow, uppercase, 0.08em tracking), 12 (status, chips), 13 (helper), 14 (body, labels, buttons; base size), 16 (brand), 22 (section title, weight 600, -0.01em tracking). Weights 400/500/600 only. Card shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -12px rgba(0,0,0,0.6). Motion: fast 120ms, base 180ms, slow 260ms; ease cubic-bezier(0.2, 0, 0, 1); switch knob may use cubic-bezier(0.34, 1.3, 0.64, 1). Pulse 1.6s ease-in-out infinite. `color-scheme: dark`. Atmosphere: one soft red radial glow, e.g. radial-gradient(320px 220px at 0 0, accent at 10% opacity, transparent 70%), behind the sidebar brand only; no other gradients or noise.
+
+Layout: settings window default 940×660, minimum 780×540, `backgroundColor` = bg (no white flash), menu bar hidden, title "Redflow Settings". Sidebar 232 px wide (icon-only rail of 68 px below 820 px window width, labels kept as `aria-label` and `title`). Sidebar top: logo 32×32, "Redflow" (16/600), eyebrow "SETTINGS". Sidebar bottom: "Redflow {version}" and "Electron {version}" in text-muted 12 px, and "Changes apply instantly". Version values keep coming from wherever they come from today. Content pane: padding 40 px, max-width 680 px, scrolls internally; sidebar never scrolls. Section header: title 22/600, description 13/text-muted, 24 px below. Card: surface-1, border, radius lg, rows divided by border-subtle. Row: padding 16 px 20 px, two columns (text 1fr, control auto), gap 24, vertically centered. The text column must never be narrower than 50% of the row (this fixes the old squeezed "Input device" label). When the content pane is narrower than 560 px the control drops below its text (use a container query).
+
+Sections and copy (labels stay as today; descriptions use this copy):
+1. Dictation: "How Redflow listens and inserts your words." Hotkey: "Hold this key anywhere in Windows, speak, then release to insert your words." Trailing space: "Adds one space after each dictation so back-to-back phrases don't run together."
+2. Text cleanup: "Tidy the transcript before it is inserted." Remove filler words: "Drops sounds like “um” and “uh”, including their longer spellings." Spoken commands: "Say “new line”, “new paragraph”, “period”, “comma” or “question mark” to insert line breaks and punctuation." Followed by static example chips (non-interactive) for those five phrases.
+3. Microphone: "Choose and test the input Redflow listens to." Input device: "System default follows the device Windows currently uses." Test microphone: "Speak normally and watch the meter. Input device changes apply immediately."
+4. Model & language: "Speech recognition runs locally on this PC." plus a small static badge "Runs locally" next to the title. Whisper model: "The .bin files found in Redflow's models folder." Language: "Auto-detect works best with a multilingual model."
+5. System: "How Redflow behaves with Windows." Start with Windows: "Launch Redflow quietly in the system tray when you sign in."
+
+Component specs:
+- Switch: real checkbox, visually hidden; track 40×22, full radius. Off: surface-3 track with border, knob #C9C9D1 at left. On: accent track with soft glow, white knob at right. A small text label "On"/"Off" (12 px, text-muted) sits beside the switch. Visible focus ring.
+- Select: native select, `appearance: none`, height 36, surface-2, border, radius md, padding 0 36 px 0 12 px, chevron drawn as an inline SVG sibling element with `pointer-events: none`, hover surface-3 + border-strong, min-width 220, max-width 300, option elements styled dark.
+- Button: height 36, radius md, 14/500. Primary = accent-solid with white text. Secondary = surface-2 + border (used for "Change" and "Test microphone"). Hover/active/focus-visible/disabled states for each. Use whichever labels exist today.
+- Keycap: min 32×32, padding 0 10 px, radius sm, mono 13/600, surface-2, border, slightly darker 2 px bottom border for key depth. A binding such as "Ctrl+Space" is split on "+" for display only, one keycap per part. Capture mode (only if the current code has this state): keycap area shows "Press a key…" with accent-soft fill, accent-border and a pulsing ring; style the existing Cancel/Escape/timeout states, do not change how capture works.
+- Meter: keep the current segment count; segment 6 px wide, 3 px gap, 14 px tall, radius 2. Off = surface-3. Lit = accent; the top two segments use accent-text (peak). Transition 60 ms.
+- Status label: 8 px dot + 12 px text-muted. Idle = text-disabled dot; active/listening = accent dot with pulse. Use the strings that exist today.
+- Sidebar nav item: height 40, radius md, icon 18 px + label 14/500. Hover surface-2. Active = surface-2 background, text color, accent icon, and a 3 px rounded accent bar on the left edge. Focus-visible ring.
+- Focus ring: 2 px accent-text with 2 px offset, on every interactive element.
+- Icons: inline SVG React components in `components/icons.tsx`: 24×24 viewBox rendered at 18–20 px, stroke currentColor, stroke-width 1.75, round caps and joins. Needed: keyboard (Dictation), sparkle/wand (Text cleanup), microphone (Microphone), chip (Model & language), power (System), chevron-down.
+- Section switch: new section fades in (opacity 0→1) and rises 6 px→0 over 180 ms; none under `prefers-reduced-motion`.
+
+### Phase 0.1 — Audit + contract
+- [x] Read-only audit of: `src/renderer/settings` (all files), `src/preload`, `src/shared/ipc.ts`, the settings window setup under `src/main/windows`, `src/main/settingsController.ts`, the tray code, `electron-builder.yml`, the settings HTML CSP.
+- [x] Create `docs/UI_CONTRACT.md` with: component tree and file list; for every control (hotkey + Change/capture states, trailing space, filler words, spoken commands, input device, test microphone + meter + status, whisper model, language, start with Windows, version footer) the state it reads, the handler it calls and the preload function behind it; the "must not change" list (U1); current settings window options; CSP findings; and every occurrence of "Murmur" in the repo classified as visible or legacy-keep.
+- [x] Run the five verification commands and record the baseline results in the contract.
+- [x] No source files changed.
+- **Done when:** the contract exists and `git diff` shows only `docs/UI_CONTRACT.md` and AGENTS.md.
+
+### Phase 0.2 — Rebrand to Redflow
+- [x] All visible "Murmur" strings changed to "Redflow" per "Naming (Redflow)"; legacy identifiers untouched.
+- [x] `electron-builder.yml`: `productName` Redflow, shortcut names, `artifactName` `Redflow-Setup-${version}.exe`; `appId` unchanged; `package.json` `name`/`productName` unchanged.
+- [x] Owner-supplied `resources/icons/redflow.ico` replaces every reference to `murmur.ico` (tray, windows, installer); the old file is deleted only after `npm run build` passes with the new references. The owner-supplied logo (`resources/icons/redflow-logo.png` or `.svg`) replaces the logo in the settings header.
+- [x] No `app.setName` / `app.setPath('userData')` added.
+- [x] `npm run dist:win` succeeds and produces `Redflow-Setup-<version>.exe`.
+- **Owner to verify:** tray icon/tooltip and settings title say Redflow; installing over an existing Murmur build keeps the settings; after changing a setting, `%APPDATA%\Murmur\settings.json` updates and no `%APPDATA%\Redflow` folder appears.
+- **Done when:** `grep -ri murmur` outside README, AGENTS.md history, docs and the legacy list finds nothing, and the owner checks pass.
+
+### Phase 0.3 — Design system foundation
+- [x] Create `tokens.css` (all tokens above), `base.css` (reset, `color-scheme: dark`, system font stack, themed thin scrollbar, selection color, global `:focus-visible` ring, `prefers-reduced-motion` rules) and import them in the settings entry.
+- [x] Apply the settings window options from the Layout spec (size, min size, `backgroundColor`, `autoHideMenuBar`, `title`).
+- [x] Replace the old teal/navy theme with the new tokens in all settings styles. The current layout may stay for now; everything must still function.
+- **Owner to verify:** no white flash on open, no teal remains, every control still works.
+- **Done when:** the window renders in the graphite theme and all behavior is unchanged.
+
+### Phase 0.4 — App shell
+- [x] Sidebar + content pane per the Layout spec, with brand block, five nav items, bottom version block, and the red glow behind the brand.
+- [x] Navigation as a vertical tablist: `role="tablist"` with `aria-orientation="vertical"`, items `role="tab"` with `aria-selected` and `aria-controls`, roving `tabIndex`, ArrowUp/ArrowDown/Home/End move and activate, panels `role="tabpanel"` with `aria-labelledby`. Active section is in-memory React state only (default Dictation). All panels stay mounted (U3).
+- [x] Section header (title + description) per section; System section holds Start with Windows; rows follow the Row spec, which fixes the squeezed-label bug.
+- [x] Icon-only rail below 820 px.
+- [x] `docs/ARCHITECTURE.md` settings renderer structure updated.
+- **Owner to verify:** every control still works in all five sections; switching sections mid hotkey-capture or mid mic-test does not break either; window resize to minimum size looks right.
+- **Done when:** the five sections switch with mouse and keyboard and no logic changed.
+
+### Phase 0.5 — Core controls
+- [x] Switch, Select, Button (primary/secondary), Keycap (including capture state), SettingRow and Card components per the Component specs; all states (hover, active, focus-visible, disabled).
+- [x] Section descriptions and helper texts replaced with the copy above.
+- **Owner to verify:** toggles persist after restart; hotkey rebind still works (including Escape, Cancel and the 15 s timeout); dropdowns still change input device, model and language.
+- **Done when:** no control uses its old styling and behavior is identical.
+
+### Phase 0.6 — Section polish + motion
+- [x] Microphone: segmented meter and status label per spec, driven exactly as before; test button restyled for its existing states.
+- [x] Model & language: "Runs locally" badge, model select showing file name and size as today, language select.
+- [x] Text cleanup: static example chips. System: single row with header. Sidebar footer per Layout spec.
+- [x] Section fade/rise transition; all pulses and transitions disabled or reduced under `prefers-reduced-motion`.
+- **Owner to verify:** Test microphone moves the meter and returns to Idle when stopped; every section looks complete at 940×660 and 780×540.
+- **Done when:** the window matches the design spec end to end.
+
+### Phase 0.7 — Overlay alignment (optional)
+- [x] The overlay (`src/renderer/overlay`) uses the shared tokens. Size, position, click-through, timing and states are unchanged. Recording/listening uses the accent pulse; the error state uses warning (#F5A524) with an alert icon and the same text, so errors stay distinct from the red brand/record color; "Inserted" uses success.
+- **Owner to verify:** the overlay still never steals focus and all four states look right.
+- **Done when:** overlay and settings share one visual language with unchanged behavior.
+
+### Phase 0.8 — Final QA
+- [x] Contrast audit of every token pairing actually used (throwaway script, not committed), with the results table added to `docs/UI_CONTRACT.md`; fix failures by adjusting tokens only.
+- [x] Keyboard walkthrough of the whole window; `prefers-reduced-motion` check; layout check at 125% and 150% Windows scaling and at the minimum window size.
+- [x] Diff audit against the branch point: only allowed files changed (renderer settings/overlay/shared styles, the visible-string and icon edits, `electron-builder.yml`, settings window options, docs). Report any violation and revert it.
+- [x] Repo-wide search for leftover "Murmur" and old teal colors; each remaining hit justified.
+- [x] `npm run dist:win` succeeds; `docs/ARCHITECTURE.md` final; flag (do not edit) that `README.md` still says Murmur and must be updated before the Phase 10 release.
+- **Owner to verify:** full regression (hotkey dictation into Notepad, rebind, every toggle, mic test, model/language, Start with Windows), installer over the previous build keeps settings, no `%APPDATA%\Redflow` folder.
+- **Done when:** all boxes are verified on a real Windows machine.

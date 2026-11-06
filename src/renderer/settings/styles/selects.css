@@ -1,0 +1,57 @@
+/* Native select with a decorative inline-SVG chevron. */
+
+.select-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 220px;
+  max-width: 300px;
+}
+
+.select {
+  width: 100%;
+  height: 36px;
+  padding: 0 calc(var(--rf-space-7) + var(--rf-space-1)) 0 var(--rf-space-3);
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-md);
+  appearance: none;
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text);
+  font-size: var(--rf-text-14);
+  cursor: pointer;
+  transition:
+    background-color var(--rf-duration-fast) var(--rf-ease),
+    border-color var(--rf-duration-fast) var(--rf-ease),
+    color var(--rf-duration-fast) var(--rf-ease);
+}
+
+.select:hover:not(:disabled) {
+  border-color: var(--rf-color-border-strong);
+  background-color: var(--rf-color-surface-3);
+}
+
+.select:disabled {
+  border-color: var(--rf-color-border-subtle);
+  color: var(--rf-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.select option {
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text);
+}
+
+.select-chevron {
+  position: absolute;
+  top: 50%;
+  right: var(--rf-space-3);
+  display: inline-flex;
+  color: var(--rf-color-text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.select:disabled + .select-chevron {
+  color: var(--rf-color-text-disabled);
+}

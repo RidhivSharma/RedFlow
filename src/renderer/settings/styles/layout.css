@@ -1,0 +1,196 @@
+/* Application shell: a fixed sidebar beside an internally scrolling content pane. */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.content-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100vh;
+  padding: var(--rf-space-8);
+  overflow-y: auto;
+  container-name: content-pane;
+  container-type: inline-size;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rf-space-7);
+  width: 100%;
+  max-width: var(--rf-size-content-max);
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rf-space-6);
+}
+
+.settings-panel:not([hidden]) {
+  animation: section-enter var(--rf-duration-base) var(--rf-ease);
+}
+
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rf-section-rise));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rf-space-3);
+}
+
+.section-header h2 {
+  margin: 0;
+  color: var(--rf-color-text);
+  font-size: var(--rf-text-22);
+  font-weight: var(--rf-weight-semibold);
+  letter-spacing: var(--rf-tracking-title);
+}
+
+.section-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--rf-space-2xs) var(--rf-space-2);
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-text-12);
+  font-weight: var(--rf-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.section-header p {
+  margin: var(--rf-space-1) 0 0;
+  color: var(--rf-color-text-muted);
+  font-size: var(--rf-text-13);
+  line-height: 1.5;
+}
+
+.card,
+.panel {
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-lg);
+  background-color: var(--rf-color-surface-1);
+  box-shadow: var(--rf-shadow-card);
+}
+
+.card {
+  overflow: hidden;
+}
+
+.card > * + * {
+  border-top: 1px solid var(--rf-color-border-subtle);
+}
+
+.panel {
+  padding: var(--rf-space-8);
+}
+
+.panel p {
+  margin: 0;
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-text-14);
+}
+
+.setting-row,
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-space-6);
+  padding: var(--rf-space-4) var(--rf-space-5);
+}
+
+.toggle-row {
+  cursor: pointer;
+}
+
+.setting-copy {
+  display: flex;
+  flex: 1 1 50%;
+  flex-direction: column;
+  gap: var(--rf-space-1);
+  min-width: 50%;
+}
+
+.setting-row > :not(.setting-copy) {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* The control never squeezes the text column below half of the row. */
+  max-width: calc(50% - var(--rf-space-6));
+}
+
+.toggle-row > .switch {
+  flex: none;
+}
+
+.toggle-row.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+label.setting-copy {
+  cursor: pointer;
+}
+
+.setting-label {
+  color: var(--rf-color-text);
+  font-size: var(--rf-text-14);
+  font-weight: var(--rf-weight-semibold);
+}
+
+.setting-hint {
+  color: var(--rf-color-text-muted);
+  font-size: var(--rf-text-13);
+  line-height: 1.5;
+}
+
+.content-status {
+  min-height: calc(var(--rf-text-12) * 1.5);
+  color: var(--rf-color-text-muted);
+  font-size: var(--rf-text-12);
+}
+
+@container content-pane (max-width: 559px) {
+  .setting-row,
+  .toggle-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--rf-space-3);
+  }
+
+  .setting-copy {
+    flex-basis: auto;
+    min-width: 0;
+  }
+
+  .setting-row > :not(.setting-copy) {
+    width: 100%;
+    max-width: none;
+  }
+
+  .toggle-row > .switch {
+    align-self: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel:not([hidden]) {
+    animation: none;
+  }
+}

@@ -1,0 +1,117 @@
+/* Composite settings pieces that are not core controls. */
+
+.test-controls {
+  display: grid;
+  justify-items: end;
+  gap: var(--rf-space-2);
+  width: 100%;
+}
+
+.level-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--rf-space-xs);
+  height: var(--rf-size-meter-height);
+}
+
+.level-bar {
+  flex: none;
+  width: var(--rf-size-meter-segment);
+  height: 100%;
+  border-radius: var(--rf-radius-2xs);
+  background-color: var(--rf-color-surface-3);
+  transition: background-color var(--rf-duration-meter) var(--rf-ease);
+}
+
+.level-bar.is-lit {
+  background-color: var(--rf-color-accent);
+}
+
+.level-bar:nth-child(n + 19).is-lit {
+  background-color: var(--rf-color-accent-text);
+}
+
+.test-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rf-space-2);
+  color: var(--rf-color-text-muted);
+  font-size: var(--rf-text-12);
+}
+
+.test-status-dot {
+  flex: none;
+  width: var(--rf-space-2);
+  height: var(--rf-space-2);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-text-disabled);
+}
+
+.test-status.is-active .test-status-dot {
+  background-color: var(--rf-color-accent);
+  animation: status-pulse var(--rf-pulse-duration) var(--rf-pulse-ease) infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--rf-color-accent-soft);
+  }
+
+  50% {
+    box-shadow: var(--rf-shadow-capture);
+  }
+}
+
+.example-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rf-space-2);
+  margin: 0;
+  padding: var(--rf-space-4) var(--rf-space-5);
+  list-style: none;
+}
+
+.example-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--rf-space-1) var(--rf-space-3);
+  border: 1px solid var(--rf-color-border);
+  border-radius: var(--rf-radius-full);
+  background-color: var(--rf-color-surface-2);
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-text-12);
+  font-weight: var(--rf-weight-medium);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.note {
+  margin: 0;
+  padding: var(--rf-space-4) var(--rf-space-5);
+  color: var(--rf-color-text-secondary);
+  font-size: var(--rf-text-13);
+  line-height: 1.55;
+}
+
+.status-error {
+  color: var(--rf-color-warning);
+}
+
+.status-ok {
+  color: var(--rf-color-success);
+}
+
+@container content-pane (max-width: 559px) {
+  .hotkey-picker,
+  .test-controls {
+    justify-content: flex-start;
+    justify-items: stretch;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .test-status.is-active .test-status-dot {
+    animation: none;
+  }
+}
